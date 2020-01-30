@@ -111,6 +111,27 @@ module DataScript
       remove_name(selection_name)
       puts "  - Altered Name:       #{selection_name.entry.first.resource.id}"
 
+      # select by clinical note
+      selection_note = results.find {|b| DataScript::Constraints.has(b, FHIR::DocumentReference)}
+      if selection_note
+        # modify it to have a URL rather than base64 encoded data
+        docref = selection_note.entry.reverse.find {|e| e.resource.resourceType == 'DocumentReference' }.resource
+        report = selection_note.entry.reverse.find {|e|
+          e.resource.resourceType == 'DiagnosticReport' &&
+          e.resource.presentedForm.first.data == docref.content.first.attachment.data }.resource
+        url = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
+        docref.content.first.attachment.contentType = 'application/pdf'
+        docref.content.first.attachment.data = nil
+        docref.content.first.attachment.url = url
+        report.presentedForm.first.contentType = 'application/pdf'
+        report.presentedForm.first.data = nil
+        report.presentedForm.first.url = url
+        puts "  - Altered DocumentReference URL: #{docref.id}"
+        puts "  - Altered DiagnosticReport  URL: #{report.id}"
+      else
+        puts "  * FAILED to find DocumentReference!"
+      end
+
       # select by medication
       selection_medication = results.find {|b| DataScript::Constraints.has(b, FHIR::Medication)}
       unless selection_medication
