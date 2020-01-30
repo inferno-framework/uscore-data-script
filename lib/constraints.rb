@@ -142,10 +142,9 @@ module DataScript
     end
 
     def self.has_pulse_ox(bundle)
-      bundle.entry.each do |entry|
-        return true if entry.resource&.meta&.profile&.include? 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry'
+      bundle.entry.any? do |entry|
+        entry.resource&.meta&.profile&.include? 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry'
       end
-      false
     end
   end
 end
