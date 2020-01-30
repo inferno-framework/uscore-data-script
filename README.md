@@ -22,8 +22,13 @@ The uscore-data-script will execute Synthea to generate synthetic patients, load
 FHIR Bundles, and select certain patients based on criteria described below.
 
 ```
-bundle exec ruby uscore-data-script.rb
+bundle exec ruby uscore-data-script.rb [mrburns]
 ```
+
+There is an optional `mrburns` parameter, which if included, will generate a single longitudinal
+patient who possesses at least one resource conforming to every US Core profile. In other words,
+one patient with everything. If the `mrburns` parameter is not included, the script will generate
+a small collection of testing patients.
 
 2. Use Data
 
