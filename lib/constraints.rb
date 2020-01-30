@@ -19,6 +19,24 @@ module DataScript
       'one_smoker' => lambda {|results| results.any? {|bundle| smoker(bundle) }}
     }
 
+    CONSTRAINTS_MRBURNS = {
+      'has_allergy' => lambda {|results| results.any? {|bundle| has(bundle, FHIR::AllergyIntolerance) }},
+      'has_pulse_ox' => lambda {|results| results.any? {|bundle| has_pulse_ox(bundle) }},
+    }
+
+    CONSTRAINTS_MRBURNS_DOES_NOT_NEED = [
+      'one_female',
+      'one_child',
+      'child_has_immunizations',
+      'child_does_not_smoke',
+      'one_adult',
+      'elder_is_alive',
+      'one_white',
+      'one_black',
+      'one_hispanic',
+      'one_smoker',
+    ]
+
     REQUIRED_PROFILES = [
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-allergyintolerance',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-careplan',
@@ -121,6 +139,12 @@ module DataScript
 
     def self.has(bundle, fhir_class)
       bundle.entry.any? {|entry| entry.resource.is_a?(fhir_class)}
+    end
+
+    def self.has_pulse_ox(bundle)
+      bundle.entry.any? do |entry|
+        entry.resource&.meta&.profile&.include? 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry'
+      end
     end
   end
 end
