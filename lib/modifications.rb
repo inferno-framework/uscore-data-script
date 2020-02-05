@@ -132,6 +132,49 @@ module DataScript
         puts "  * FAILED to find DocumentReference!"
       end
 
+      # collect all the clinical notes and modify codes so we have at least one of each type
+      note_types = [
+        [ 'Consultation note', '11488-4' ],
+        [ 'Discharge summary', '18842-5' ],
+        [ 'History and physical note', '34117-2' ],
+        [ 'Procedure note', '28570-0' ],
+        [ 'Progress note', '11506-3' ],
+        [ 'Cardiology', 'LP29708-2' ],
+        [ 'Pathology', 'LP7839-6' ],
+        [ 'Radiology', 'LP29684-5' ],
+        [ 'Referral note', '57133-1' ],
+        [ 'Surgical operation note', '11504-8' ],
+        [ 'Nurse Note', '34746-8' ]
+      ]
+      note_types.map! do |type|
+        coding = FHIR::Coding.new
+        coding.system = 'http://loinc.org'
+        coding.display = type.first
+        coding.code = type.last
+        codeableconcept = FHIR::CodeableConcept.new
+        codeableconcept.text = type.first
+        codeableconcept.coding = [ coding ]
+        codeableconcept
+      end
+      # grab all the clinical notes
+      all_docref = results.map {|b| b.entry.select {|e| e.resource.resourceType == 'DocumentReference'}.map {|e| e.resource} }.flatten
+      all_report = results.map {|b| b.entry.select {|e| e.resource.resourceType == 'DiagnosticReport'}.map {|e| e.resource} }.flatten
+      # there are more DiagnosticReports than DocumentReferences,
+      # so we need to filter them...
+      docref_data = all_docref.map {|r| r.content.first.attachment.data}
+      matching_report = all_report.select { |r| r.presentedForm.length >= 1 && docref_data.include?(r.presentedForm.first.data) }
+      # need to replace the codes...
+      # we will use a uniform distribution of note_types
+      note_types_index = 0
+      all_docref.zip(matching_report).each do |docref, report|
+        docref.type = note_types[note_types_index]
+        report.category = [ note_types[note_types_index] ]
+        report.code = note_types[note_types_index]
+        note_types_index += 1
+        note_types_index = 0 if note_types_index >= note_types.length
+      end
+      puts "  - Altered codes for #{all_docref.length} clinical notes."
+
       # select by medication
       selection_medication = results.find {|b| DataScript::Constraints.has(b, FHIR::Medication)}
       unless selection_medication
