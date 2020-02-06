@@ -53,12 +53,7 @@ module DataScript
             vitalspanel.meta = FHIR::Meta.new
             vitalspanel.meta.profile = [ 'http://hl7.org/fhir/StructureDefinition/vitalspanel', 'http://hl7.org/fhir/StructureDefinition/vitalsigns' ]
             vitalspanel.category = vitals.first.resource.category
-            vitalspanel.code = FHIR::CodeableConcept.new
-            vitalspanel.code.coding = [ FHIR::Coding.new ]
-            vitalspanel.code.coding.first.code = '85353-1'
-            vitalspanel.code.coding.first.system = 'http://loinc.org'
-            vitalspanel.code.coding.first.display = 'Vital signs, weight, height, head circumference, oxygen saturation and BMI panel'
-            vitalspanel.code.text = 'Vital signs, weight, height, head circumference, oxygen saturation and BMI panel'
+            vitalspanel.code = create_codeable_concept('http://loinc','85353-1','Vital signs, weight, height, head circumference, oxygen saturation and BMI panel')
             vitalspanel.effectiveDateTime = vitals.first.resource.effectiveDateTime
             vitalspanel.encounter = vitals.first.resource.encounter
             vitalspanel.issued = vitals.first.resource.issued
@@ -133,29 +128,23 @@ module DataScript
       end
 
       # collect all the clinical notes and modify codes so we have at least one of each type
+      category_types = [
+        [ 'Cardiology', 'LP29708-2' ],
+        [ 'Pathology', 'LP7839-6' ],
+        [ 'Radiology', 'LP29684-5' ]
+      ]
       note_types = [
         [ 'Consultation note', '11488-4' ],
         [ 'Discharge summary', '18842-5' ],
         [ 'History and physical note', '34117-2' ],
         [ 'Procedure note', '28570-0' ],
         [ 'Progress note', '11506-3' ],
-        [ 'Cardiology', 'LP29708-2' ],
-        [ 'Pathology', 'LP7839-6' ],
-        [ 'Radiology', 'LP29684-5' ],
         [ 'Referral note', '57133-1' ],
         [ 'Surgical operation note', '11504-8' ],
         [ 'Nurse Note', '34746-8' ]
       ]
-      note_types.map! do |type|
-        coding = FHIR::Coding.new
-        coding.system = 'http://loinc.org'
-        coding.display = type.first
-        coding.code = type.last
-        codeableconcept = FHIR::CodeableConcept.new
-        codeableconcept.text = type.first
-        codeableconcept.coding = [ coding ]
-        codeableconcept
-      end
+      category_types.map! {|type| create_codeable_concept('http://loinc.org',type.last,type.first) }
+      note_types.map! {|type| create_codeable_concept('http://loinc.org',type.last,type.first) }
       # grab all the clinical notes
       all_docref = results.map {|b| b.entry.select {|e| e.resource.resourceType == 'DocumentReference'}.map {|e| e.resource} }.flatten
       all_report = results.map {|b| b.entry.select {|e| e.resource.resourceType == 'DiagnosticReport'}.map {|e| e.resource} }.flatten
@@ -166,12 +155,15 @@ module DataScript
       # need to replace the codes...
       # we will use a uniform distribution of note_types
       note_types_index = 0
+      category_types_index = 0
       all_docref.zip(matching_report).each do |docref, report|
         docref.type = note_types[note_types_index]
-        report.category = [ note_types[note_types_index] ]
+        report.category = [ category_types[category_types_index] ]
         report.code = note_types[note_types_index]
         note_types_index += 1
+        category_types_index += 1
         note_types_index = 0 if note_types_index >= note_types.length
+        category_types_index = 0 if category_types_index >= category_types.length
       end
       puts "  - Altered codes for #{all_docref.length} clinical notes."
 
@@ -299,6 +291,17 @@ module DataScript
         group.member << group_member
       end
       group
+    end
+
+    def self.create_codeable_concept(system, code, display)
+      coding = FHIR::Coding.new
+      coding.system = system
+      coding.display = display
+      coding.code = code
+      codeableconcept = FHIR::CodeableConcept.new
+      codeableconcept.text = display
+      codeableconcept.coding = [ coding ]
+      codeableconcept
     end
 
     def self.create_bundle_entry(resource)
