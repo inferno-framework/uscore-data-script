@@ -1,3 +1,4 @@
+require 'base64'
 require 'securerandom'
 require_relative 'constraints'
 
@@ -18,6 +19,10 @@ module DataScript
         bundle.entry.first.resource.identifier.delete_if do |identifier|
           identifier.system.start_with? 'http://standardhealthrecord.org'
         end
+
+        # finally, make sure every patient has an address period
+        bundle.entry.first.resource.address.first.period = FHIR::Period.new
+        bundle.entry.first.resource.address.first.period.start = bundle.entry.first.resource.birthDate
       end
 
       # create vitalspanel
@@ -77,6 +82,18 @@ module DataScript
         end
       end
       puts "  - Created #{new_vitalspanels} vitalspanels"
+
+      # Make sure at least one organization has an NPI
+      organization_entry = results.last.entry.find {|e| e.resource.resourceType == 'Organization' }
+      organization = organization_entry.resource
+      # Add a 10 digit NPI
+      organization.identifier << FHIR::Identifier.new
+      organization.identifier.last.system = 'http://hl7.org/fhir/sid/us-npi'
+      organization.identifier.last.value = '9999999999'
+      # Add a CLIA
+      organization.identifier << FHIR::Identifier.new
+      organization.identifier.last.system = 'urn:oid:2.16.840.1.113883.4.7'
+      organization.identifier.last.value = '9999999999'
 
       # select by smoking status
       selection_smoker = results.find {|b| DataScript::Constraints.smoker(b)}
@@ -182,6 +199,7 @@ module DataScript
         med.meta.profile = [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-medication' ]
         med.code = medreq.resource.medicationCodeableConcept
         # alter the MedicationRequest to refer to the Medication resource and not a code
+        medreq.resource.reportedBoolean = true
         medreq.resource.medicationCodeableConcept = nil
         medreq.resource.medicationReference = FHIR::Reference.new
         medreq.resource.medicationReference.reference = "urn:uuid:#{med.id}"
@@ -191,6 +209,67 @@ module DataScript
         provenance.resource.target << FHIR::Reference.new
         provenance.resource.target.last.reference = "urn:uuid:#{med.id}"
         puts "  - Altered Medication: #{bundle.entry.first.resource.id}"
+      end
+
+      # select by device
+      selection_device = results.find {|b| DataScript::Constraints.has(b, FHIR::Device)}
+      if selection_device
+        # if there is a Device resource, we need to clone it and use carrierAIDC.
+        device = selection_device.entry.find { |e| e.resource.resourceType == 'Device' }
+        provenance = selection_device.entry.find { |e| e.resource.resourceType == 'Provenance' }
+        # create the new Device
+        dev = FHIR::Device.new(device.resource.to_hash)
+        dev.id = SecureRandom.uuid
+        dev.udiCarrier.first.carrierHRF = nil
+        barcode_file_path = File.join(File.dirname(__FILE__), './barcode.png')
+        barcode_file = File.open(barcode_file_path, 'rb')
+        barcode_data = barcode_file.read
+        barcode_file.close
+        dev.udiCarrier.first.carrierAIDC = Base64.encode64(barcode_data)
+        # add the Device as a new Bundle entry
+        selection_device.entry << create_bundle_entry(dev)
+        # add the Device into the provenance
+        provenance.resource.target << FHIR::Reference.new
+        provenance.resource.target.last.reference = "urn:uuid:#{dev.id}"
+        puts "  - Cloned Device: #{selection_device.entry.first.resource.id}"
+      end
+
+      # select an Immunization
+      selection_immunization = results.find {|b| DataScript::Constraints.has(b, FHIR::Immunization)}
+      if selection_immunization
+        # if there is an Immunization resource, we need to clone it and use carrierAIDC.
+        immunization_entry = selection_immunization.entry.find { |e| e.resource.resourceType == 'Immunization' }
+        immunization = immunization_entry.resource
+        immunization.vaccineCode = create_codeable_concept('http://terminology.hl7.org/CodeSystem/data-absent-reason', 'unknown', 'Unknown')
+        immunization.statusReason = create_codeable_concept('http://terminology.hl7.org/CodeSystem/v3-ActReason', 'OSTOCK', 'product out of stock')
+        immunization.status = 'not-done'
+        puts "  - Altered Immunization: #{selection_immunization.entry.first.resource.id}"
+      end
+
+      # select Bundle with Pulse Oximetry
+      selection_pulse_ox = results.find {|b| DataScript::Constraints.has_pulse_ox(b)}
+      if selection_pulse_ox
+        pulse_ox_entry = selection_pulse_ox.entry.find {|e| e.resource&.meta&.profile&.include? 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry' }
+        pulse_ox_obs = pulse_ox_entry.resource
+        # Add the must support components
+        pulse_ox_obs.component = []
+        # First component is flow rate
+        pulse_ox_obs.component << FHIR::Observation::Component.new
+        pulse_ox_obs.component.last.code = create_codeable_concept('http://loinc.org','3151-8', 'Inhaled oxygen flow rate')
+        pulse_ox_obs.component.last.valueQuantity = FHIR::Quantity.new
+        pulse_ox_obs.component.last.valueQuantity.value = 6
+        pulse_ox_obs.component.last.valueQuantity.unit = 'l/min'
+        pulse_ox_obs.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
+        pulse_ox_obs.component.last.valueQuantity.code = 'l/min'
+        # Second component is concentration
+        pulse_ox_obs.component << FHIR::Observation::Component.new
+        pulse_ox_obs.component.last.code = create_codeable_concept('http://loinc.org','3150-0', 'Inhaled oxygen concentration')
+        pulse_ox_obs.component.last.valueQuantity = FHIR::Quantity.new
+        pulse_ox_obs.component.last.valueQuantity.value = 40
+        pulse_ox_obs.component.last.valueQuantity.unit = '%'
+        pulse_ox_obs.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
+        pulse_ox_obs.component.last.valueQuantity.code = '%'
+        puts "  - Altered Pulse Oximetry Components: #{selection_pulse_ox.entry.first.resource.id}"
       end
 
       # remove all resources from bundles that are not US Core profiles
