@@ -249,27 +249,98 @@ module DataScript
       # select Bundle with Pulse Oximetry
       selection_pulse_ox = results.find {|b| DataScript::Constraints.has_pulse_ox(b)}
       if selection_pulse_ox
+        provenance = selection_device.entry.find { |e| e.resource.resourceType == 'Provenance' }
         pulse_ox_entry = selection_pulse_ox.entry.find {|e| e.resource&.meta&.profile&.include? 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry' }
-        pulse_ox_obs = pulse_ox_entry.resource
+        pulse_ox_clone = FHIR.from_contents(pulse_ox_entry.resource.to_json)
+        pulse_ox_clone.id = SecureRandom.uuid
         # Add the must support components
-        pulse_ox_obs.component = []
+        pulse_ox_clone.component = []
         # First component is flow rate
-        pulse_ox_obs.component << FHIR::Observation::Component.new
-        pulse_ox_obs.component.last.code = create_codeable_concept('http://loinc.org','3151-8', 'Inhaled oxygen flow rate')
-        pulse_ox_obs.component.last.valueQuantity = FHIR::Quantity.new
-        pulse_ox_obs.component.last.valueQuantity.value = 6
-        pulse_ox_obs.component.last.valueQuantity.unit = 'l/min'
-        pulse_ox_obs.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
-        pulse_ox_obs.component.last.valueQuantity.code = 'l/min'
+        pulse_ox_clone.component << FHIR::Observation::Component.new
+        pulse_ox_clone.component.last.code = create_codeable_concept('http://loinc.org','3151-8', 'Inhaled oxygen flow rate')
+        pulse_ox_clone.component.last.valueQuantity = FHIR::Quantity.new
+        pulse_ox_clone.component.last.valueQuantity.value = 6
+        pulse_ox_clone.component.last.valueQuantity.unit = 'l/min'
+        pulse_ox_clone.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
+        pulse_ox_clone.component.last.valueQuantity.code = 'l/min'
         # Second component is concentration
-        pulse_ox_obs.component << FHIR::Observation::Component.new
-        pulse_ox_obs.component.last.code = create_codeable_concept('http://loinc.org','3150-0', 'Inhaled oxygen concentration')
-        pulse_ox_obs.component.last.valueQuantity = FHIR::Quantity.new
-        pulse_ox_obs.component.last.valueQuantity.value = 40
-        pulse_ox_obs.component.last.valueQuantity.unit = '%'
-        pulse_ox_obs.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
-        pulse_ox_obs.component.last.valueQuantity.code = '%'
-        puts "  - Altered Pulse Oximetry Components: #{selection_pulse_ox.entry.first.resource.id}"
+        pulse_ox_clone.component << FHIR::Observation::Component.new
+        pulse_ox_clone.component.last.code = create_codeable_concept('http://loinc.org','3150-0', 'Inhaled oxygen concentration')
+        pulse_ox_clone.component.last.valueQuantity = FHIR::Quantity.new
+        pulse_ox_clone.component.last.valueQuantity.value = 40
+        pulse_ox_clone.component.last.valueQuantity.unit = '%'
+        pulse_ox_clone.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
+        pulse_ox_clone.component.last.valueQuantity.code = '%'
+        # add the Pulse Oximetry as a new Bundle entry
+        selection_device.entry << create_bundle_entry(pulse_ox_clone)
+        # add the Pulse Oximetry into the provenance
+        provenance.resource.target << FHIR::Reference.new
+        provenance.resource.target.last.reference = "urn:uuid:#{pulse_ox_clone.id}"
+        puts "  - Cloned Pulse Oximetry and Added Components: #{selection_pulse_ox.entry.first.resource.id}"
+      end
+
+      # Observation Data Absent Reasons
+      # observation_profiles_valueQuantity_required = [
+      #   'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-bmi-for-age',
+      #   'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-weight-for-height',
+      #   'http://hl7.org/fhir/StructureDefinition/bmi',
+      # ]
+      observation_profiles_valueCodeableConcept_required = [
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-smokingstatus'
+      ]
+      observation_profiles_components_required = [
+        'http://hl7.org/fhir/StructureDefinition/bp'
+      ]
+      observation_profiles = [
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab',
+        # 'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-bmi-for-age',
+        # 'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-weight-for-height',
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-smokingstatus',
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry',
+        'http://hl7.org/fhir/StructureDefinition/resprate',
+        'http://hl7.org/fhir/StructureDefinition/heartrate',
+        'http://hl7.org/fhir/StructureDefinition/bodytemp',
+        'http://hl7.org/fhir/StructureDefinition/bodyheight',
+        'http://hl7.org/fhir/StructureDefinition/headcircum',
+        'http://hl7.org/fhir/StructureDefinition/bodyweight',
+        # 'http://hl7.org/fhir/StructureDefinition/bmi',
+        'http://hl7.org/fhir/StructureDefinition/bp'
+      ]
+      puts "  - Processing Observation Data Absent Reasons"
+      results.each do |bundle|
+        break if observation_profiles.empty?
+        observation_profiles.delete_if do |profile_url|
+          entry = bundle.entry.find {|e| e.resource.resourceType == 'Observation' && e.resource.meta&.profile&.include?(profile_url) }
+          if entry
+            instance = entry.resource
+            instance.dataAbsentReason = create_codeable_concept('http://terminology.hl7.org/CodeSystem/data-absent-reason', 'unknown', 'Unknown')
+            # if observation_profiles_valueQuantity_required.include?(profile_url)
+            #   instance.dataAbsentReason = nil
+            #   instance.valueQuantity.value = 'DATAABSENTREASONEXTENSIONGOESHERE' # Flag for primitive extension
+            # elsif
+            if observation_profiles_valueCodeableConcept_required.include?(profile_url)
+              instance.valueCodeableConcept = instance.dataAbsentReason
+              instance.dataAbsentReason = nil
+            elsif observation_profiles_components_required.include?(profile_url)
+              instance.component.each do |component|
+                component.valueQuantity = nil
+                component.dataAbsentReason = instance.dataAbsentReason
+              end
+            else
+              instance.valueQuantity = nil
+            end
+            puts "    - #{profile_url}: #{entry.fullUrl}"
+            true # delete this profile url from the list
+          else
+            false # keep searching for this profile url in the next bundle
+          end
+        end
+      end
+      unless observation_profiles.empty?
+        puts "  * Missed Observation Data Absent Reasons"
+        observation_profiles.each do |profile_url|
+          puts "    ** #{profile_url}"
+        end
       end
 
       # remove all resources from bundles that are not US Core profiles

@@ -38,7 +38,7 @@ CONFIG='--exporter.fhir.use_us_core_ig=true --exporter.baseDirectory=./output/ra
 if MRBURNS
   system( "java -cp #{CLASSPATH} App -s 0 -a 80-81 -g M -p 20 #{CONFIG} --exporter.years_of_history=0 > output/synthea.log" )
 else
-  system( "java -cp #{CLASSPATH} App -s 3 -p 205 #{CONFIG} > output/synthea.log" )
+  system( "java -cp #{CLASSPATH} App -s 3 -p 100 #{CONFIG} > output/synthea.log" )
 end
 tok = Time.now.to_i
 puts "  Generated data in #{DataScript::TimeUtilities.pretty(tok - start)}."
@@ -191,7 +191,9 @@ selections.each do |bundle|
   end
   filename = "#{output_data}/#{id}.json"
   file = File.open(filename,'w:UTF-8')
-  file.write( bundle.to_json )
+  json_string = bundle.to_json
+  # json_string.gsub!('"value": "DATAABSENTREASONEXTENSIONGOESHERE"', "\"_value\": { \"extension\": [ #{DataScript::Modifications.data_absent_reason.to_json} ] }")
+  file.write( json_string )
   file.close
   # run FHIR validator on output
   validation_file = "#{output_validation}/#{id}.txt"
@@ -213,6 +215,7 @@ if patient_bundle_absent_name
   }]
   patient_without_name_json = JSON.unparse(json['entry'][0]['resource'])
   json = JSON.pretty_unparse(json)
+  # json.gsub!('"value": "DATAABSENTREASONEXTENSIONGOESHERE"', "\"_value\": { \"extension\": [ #{DataScript::Modifications.data_absent_reason.to_json} ] }")
   filename = "#{output_data}/#{patient_bundle_absent_name.entry.first.resource.id}.json"
   file = File.open(filename,'w:UTF-8')
   file.write(json)
