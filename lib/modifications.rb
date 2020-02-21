@@ -20,6 +20,10 @@ module DataScript
           identifier.system.start_with? 'http://standardhealthrecord.org'
         end
 
+        # make sure every patient has a postalCode
+        # some towns do not have postalCodes
+        bundle.entry.first.resource.address.first.postalCode = '01999' unless bundle.entry.first.resource.address.first.postalCode
+
         # finally, make sure every patient has an address period
         bundle.entry.first.resource.address.first.period = FHIR::Period.new
         bundle.entry.first.resource.address.first.period.start = bundle.entry.first.resource.birthDate
@@ -95,6 +99,20 @@ module DataScript
       organization.identifier.last.system = 'urn:oid:2.16.840.1.113883.4.7'
       organization.identifier.last.value = '9999999999'
 
+      # Add a PractitionerRole.endpoint
+      pr_entry = results.last.entry.find {|e| e.resource.resourceType == 'PractitionerRole' }
+      pr = pr_entry.resource
+      pr.endpoint = [ FHIR::Reference.new ]
+      pr.endpoint.first.reference = '#endpoint'
+      pr.endpoint.first.type = 'Endpoint'
+      endpoint = FHIR::Endpoint.new
+      endpoint.id = 'endpoint'
+      endpoint.status = 'active'
+      endpoint.connectionType = create_codeable_concept('http://terminology.hl7.org/CodeSystem/endpoint-connection-type', 'direct-project', 'Direct Project').coding.first
+      endpoint.payloadType = [ create_codeable_concept('http://terminology.hl7.org/CodeSystem/endpoint-payload-type', 'any', 'Any') ]
+      endpoint.address = "mailto:#{pr.telecom.last.value}"
+      pr.contained = [ endpoint ]
+
       # select by smoking status
       selection_smoker = results.find {|b| DataScript::Constraints.smoker(b)}
       unless selection_smoker
@@ -119,9 +137,11 @@ module DataScript
 
       # select someone with the most numerous gender
       # from the people remaining, and remove their name
-      selection_name = pick_by_gender(results)
-      remove_name(selection_name)
-      puts "  - Altered Name:       #{selection_name.entry.first.resource.id}"
+      unless MRBURNS
+        selection_name = pick_by_gender(results)
+        remove_name(selection_name)
+        puts "  - Altered Name:       #{selection_name.entry.first.resource.id}"
+      end
 
       # select by clinical note
       selection_note = results.find {|b| DataScript::Constraints.has(b, FHIR::DocumentReference)}
@@ -251,31 +271,39 @@ module DataScript
       if selection_pulse_ox
         provenance = selection_device.entry.find { |e| e.resource.resourceType == 'Provenance' }
         pulse_ox_entry = selection_pulse_ox.entry.find {|e| e.resource&.meta&.profile&.include? 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry' }
-        pulse_ox_clone = FHIR.from_contents(pulse_ox_entry.resource.to_json)
-        pulse_ox_clone.id = SecureRandom.uuid
-        # Add the must support components
-        pulse_ox_clone.component = []
-        # First component is flow rate
-        pulse_ox_clone.component << FHIR::Observation::Component.new
-        pulse_ox_clone.component.last.code = create_codeable_concept('http://loinc.org','3151-8', 'Inhaled oxygen flow rate')
-        pulse_ox_clone.component.last.valueQuantity = FHIR::Quantity.new
-        pulse_ox_clone.component.last.valueQuantity.value = 6
-        pulse_ox_clone.component.last.valueQuantity.unit = 'l/min'
-        pulse_ox_clone.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
-        pulse_ox_clone.component.last.valueQuantity.code = 'l/min'
-        # Second component is concentration
-        pulse_ox_clone.component << FHIR::Observation::Component.new
-        pulse_ox_clone.component.last.code = create_codeable_concept('http://loinc.org','3150-0', 'Inhaled oxygen concentration')
-        pulse_ox_clone.component.last.valueQuantity = FHIR::Quantity.new
-        pulse_ox_clone.component.last.valueQuantity.value = 40
-        pulse_ox_clone.component.last.valueQuantity.unit = '%'
-        pulse_ox_clone.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
-        pulse_ox_clone.component.last.valueQuantity.code = '%'
-        # add the Pulse Oximetry as a new Bundle entry
-        selection_device.entry << create_bundle_entry(pulse_ox_clone)
-        # add the Pulse Oximetry into the provenance
-        provenance.resource.target << FHIR::Reference.new
-        provenance.resource.target.last.reference = "urn:uuid:#{pulse_ox_clone.id}"
+        pulse_ox_clone = nil
+        2.times do
+          pulse_ox_clone = FHIR.from_contents(pulse_ox_entry.resource.to_json)
+          pulse_ox_clone.id = SecureRandom.uuid
+          # Add the must support components
+          pulse_ox_clone.component = []
+          # First component is flow rate
+          pulse_ox_clone.component << FHIR::Observation::Component.new
+          pulse_ox_clone.component.last.code = create_codeable_concept('http://loinc.org','3151-8', 'Inhaled oxygen flow rate')
+          pulse_ox_clone.component.last.valueQuantity = FHIR::Quantity.new
+          pulse_ox_clone.component.last.valueQuantity.value = 6
+          pulse_ox_clone.component.last.valueQuantity.unit = 'l/min'
+          pulse_ox_clone.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
+          pulse_ox_clone.component.last.valueQuantity.code = 'l/min'
+          # Second component is concentration
+          pulse_ox_clone.component << FHIR::Observation::Component.new
+          pulse_ox_clone.component.last.code = create_codeable_concept('http://loinc.org','3150-0', 'Inhaled oxygen concentration')
+          pulse_ox_clone.component.last.valueQuantity = FHIR::Quantity.new
+          pulse_ox_clone.component.last.valueQuantity.value = 40
+          pulse_ox_clone.component.last.valueQuantity.unit = '%'
+          pulse_ox_clone.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
+          pulse_ox_clone.component.last.valueQuantity.code = '%'
+          # add the Pulse Oximetry as a new Bundle entry
+          selection_device.entry << create_bundle_entry(pulse_ox_clone)
+          # add the Pulse Oximetry into the provenance
+          provenance.resource.target << FHIR::Reference.new
+          provenance.resource.target.last.reference = "urn:uuid:#{pulse_ox_clone.id}"
+        end
+        # for the second clone, data absent reason the components
+        pulse_ox_clone.component.each do |component|
+          component.valueQuantity = nil
+          component.dataAbsentReason = create_codeable_concept('http://terminology.hl7.org/CodeSystem/data-absent-reason', 'unknown', 'Unknown')
+        end
         puts "  - Cloned Pulse Oximetry and Added Components: #{selection_pulse_ox.entry.first.resource.id}"
       end
 
