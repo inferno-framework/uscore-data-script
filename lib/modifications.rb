@@ -29,6 +29,14 @@ module DataScript
         bundle.entry.first.resource.address.first.period.start = bundle.entry.first.resource.birthDate
       end
 
+      # Add discharge disposition to first encounter of each record
+      results.each do |bundle|
+        encounter_entry = bundle.entry.find {|e| e.resource.resourceType == 'Encounter'}
+        encounter = encounter_entry.resource
+        encounter.hospitalization = FHIR::Encounter::Hospitalization.new
+        encounter.hospitalization.dischargeDisposition = create_codeable_concept('http://www.nubc.org/patient-discharge','01','Discharged to home care or self care (routine discharge)')
+      end
+
       # create vitalspanel
       panel_members = [
         'http://hl7.org/fhir/StructureDefinition/resprate',
