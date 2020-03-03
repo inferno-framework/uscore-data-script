@@ -1,3 +1,4 @@
+require 'base64'
 require 'securerandom'
 require_relative 'constraints'
 
@@ -18,6 +19,22 @@ module DataScript
         bundle.entry.first.resource.identifier.delete_if do |identifier|
           identifier.system.start_with? 'http://standardhealthrecord.org'
         end
+
+        # make sure every patient has a postalCode
+        # some towns do not have postalCodes
+        bundle.entry.first.resource.address.first.postalCode = '01999' unless bundle.entry.first.resource.address.first.postalCode
+
+        # finally, make sure every patient has an address period
+        bundle.entry.first.resource.address.first.period = FHIR::Period.new
+        bundle.entry.first.resource.address.first.period.start = bundle.entry.first.resource.birthDate
+      end
+
+      # Add discharge disposition to first encounter of each record
+      results.each do |bundle|
+        encounter_entry = bundle.entry.find {|e| e.resource.resourceType == 'Encounter'}
+        encounter = encounter_entry.resource
+        encounter.hospitalization = FHIR::Encounter::Hospitalization.new
+        encounter.hospitalization.dischargeDisposition = create_codeable_concept('http://www.nubc.org/patient-discharge','01','Discharged to home care or self care (routine discharge)')
       end
 
       # create vitalspanel
@@ -78,6 +95,32 @@ module DataScript
       end
       puts "  - Created #{new_vitalspanels} vitalspanels"
 
+      # Make sure at least one organization has an NPI
+      organization_entry = results.last.entry.find {|e| e.resource.resourceType == 'Organization' }
+      organization = organization_entry.resource
+      # Add a 10 digit NPI
+      organization.identifier << FHIR::Identifier.new
+      organization.identifier.last.system = 'http://hl7.org/fhir/sid/us-npi'
+      organization.identifier.last.value = '9999999999'
+      # Add a CLIA
+      organization.identifier << FHIR::Identifier.new
+      organization.identifier.last.system = 'urn:oid:2.16.840.1.113883.4.7'
+      organization.identifier.last.value = '9999999999'
+
+      # Add a PractitionerRole.endpoint
+      pr_entry = results.last.entry.find {|e| e.resource.resourceType == 'PractitionerRole' }
+      pr = pr_entry.resource
+      pr.endpoint = [ FHIR::Reference.new ]
+      pr.endpoint.first.reference = '#endpoint'
+      pr.endpoint.first.type = 'Endpoint'
+      endpoint = FHIR::Endpoint.new
+      endpoint.id = 'endpoint'
+      endpoint.status = 'active'
+      endpoint.connectionType = create_codeable_concept('http://terminology.hl7.org/CodeSystem/endpoint-connection-type', 'direct-project', 'Direct Project').coding.first
+      endpoint.payloadType = [ create_codeable_concept('http://terminology.hl7.org/CodeSystem/endpoint-payload-type', 'any', 'Any') ]
+      endpoint.address = "mailto:#{pr.telecom.last.value}"
+      pr.contained = [ endpoint ]
+
       # select by smoking status
       selection_smoker = results.find {|b| DataScript::Constraints.smoker(b)}
       unless selection_smoker
@@ -102,9 +145,11 @@ module DataScript
 
       # select someone with the most numerous gender
       # from the people remaining, and remove their name
-      selection_name = pick_by_gender(results)
-      remove_name(selection_name)
-      puts "  - Altered Name:       #{selection_name.entry.first.resource.id}"
+      unless MRBURNS
+        selection_name = pick_by_gender(results)
+        remove_name(selection_name)
+        puts "  - Altered Name:       #{selection_name.entry.first.resource.id}"
+      end
 
       # select by clinical note
       selection_note = results.find {|b| DataScript::Constraints.has(b, FHIR::DocumentReference)}
@@ -182,6 +227,7 @@ module DataScript
         med.meta.profile = [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-medication' ]
         med.code = medreq.resource.medicationCodeableConcept
         # alter the MedicationRequest to refer to the Medication resource and not a code
+        medreq.resource.reportedBoolean = true
         medreq.resource.medicationCodeableConcept = nil
         medreq.resource.medicationReference = FHIR::Reference.new
         medreq.resource.medicationReference.reference = "urn:uuid:#{med.id}"
@@ -191,6 +237,146 @@ module DataScript
         provenance.resource.target << FHIR::Reference.new
         provenance.resource.target.last.reference = "urn:uuid:#{med.id}"
         puts "  - Altered Medication: #{bundle.entry.first.resource.id}"
+      end
+
+      # select by device
+      selection_device = results.find {|b| DataScript::Constraints.has(b, FHIR::Device)}
+      if selection_device
+        # if there is a Device resource, we need to clone it and use carrierAIDC.
+        device = selection_device.entry.find { |e| e.resource.resourceType == 'Device' }
+        provenance = selection_device.entry.find { |e| e.resource.resourceType == 'Provenance' }
+        # create the new Device
+        dev = FHIR::Device.new(device.resource.to_hash)
+        dev.id = SecureRandom.uuid
+        dev.udiCarrier.first.carrierHRF = nil
+        barcode_file_path = File.join(File.dirname(__FILE__), './barcode.png')
+        barcode_file = File.open(barcode_file_path, 'rb')
+        barcode_data = barcode_file.read
+        barcode_file.close
+        dev.udiCarrier.first.carrierAIDC = Base64.encode64(barcode_data)
+        # add the Device as a new Bundle entry
+        selection_device.entry << create_bundle_entry(dev)
+        # add the Device into the provenance
+        provenance.resource.target << FHIR::Reference.new
+        provenance.resource.target.last.reference = "urn:uuid:#{dev.id}"
+        puts "  - Cloned Device: #{selection_device.entry.first.resource.id}"
+      end
+
+      # select an Immunization
+      selection_immunization = results.find {|b| DataScript::Constraints.has(b, FHIR::Immunization)}
+      if selection_immunization
+        # if there is an Immunization resource, we need to clone it and use carrierAIDC.
+        immunization_entry = selection_immunization.entry.find { |e| e.resource.resourceType == 'Immunization' }
+        immunization = immunization_entry.resource
+        immunization.vaccineCode = create_codeable_concept('http://terminology.hl7.org/CodeSystem/data-absent-reason', 'unknown', 'Unknown')
+        immunization.statusReason = create_codeable_concept('http://terminology.hl7.org/CodeSystem/v3-ActReason', 'OSTOCK', 'product out of stock')
+        immunization.status = 'not-done'
+        puts "  - Altered Immunization: #{selection_immunization.entry.first.resource.id}"
+      end
+
+      # select Bundle with Pulse Oximetry
+      selection_pulse_ox = results.find {|b| DataScript::Constraints.has_pulse_ox(b)}
+      if selection_pulse_ox
+        provenance = selection_device.entry.find { |e| e.resource.resourceType == 'Provenance' }
+        pulse_ox_entry = selection_pulse_ox.entry.find {|e| e.resource&.meta&.profile&.include? 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry' }
+        pulse_ox_clone = nil
+        2.times do
+          pulse_ox_clone = FHIR.from_contents(pulse_ox_entry.resource.to_json)
+          pulse_ox_clone.id = SecureRandom.uuid
+          # Add the must support components
+          pulse_ox_clone.component = []
+          # First component is flow rate
+          pulse_ox_clone.component << FHIR::Observation::Component.new
+          pulse_ox_clone.component.last.code = create_codeable_concept('http://loinc.org','3151-8', 'Inhaled oxygen flow rate')
+          pulse_ox_clone.component.last.valueQuantity = FHIR::Quantity.new
+          pulse_ox_clone.component.last.valueQuantity.value = 6
+          pulse_ox_clone.component.last.valueQuantity.unit = 'l/min'
+          pulse_ox_clone.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
+          pulse_ox_clone.component.last.valueQuantity.code = 'l/min'
+          # Second component is concentration
+          pulse_ox_clone.component << FHIR::Observation::Component.new
+          pulse_ox_clone.component.last.code = create_codeable_concept('http://loinc.org','3150-0', 'Inhaled oxygen concentration')
+          pulse_ox_clone.component.last.valueQuantity = FHIR::Quantity.new
+          pulse_ox_clone.component.last.valueQuantity.value = 40
+          pulse_ox_clone.component.last.valueQuantity.unit = '%'
+          pulse_ox_clone.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
+          pulse_ox_clone.component.last.valueQuantity.code = '%'
+          # add the Pulse Oximetry as a new Bundle entry
+          selection_device.entry << create_bundle_entry(pulse_ox_clone)
+          # add the Pulse Oximetry into the provenance
+          provenance.resource.target << FHIR::Reference.new
+          provenance.resource.target.last.reference = "urn:uuid:#{pulse_ox_clone.id}"
+        end
+        # for the second clone, data absent reason the components
+        pulse_ox_clone.component.each do |component|
+          component.valueQuantity = nil
+          component.dataAbsentReason = create_codeable_concept('http://terminology.hl7.org/CodeSystem/data-absent-reason', 'unknown', 'Unknown')
+        end
+        puts "  - Cloned Pulse Oximetry and Added Components: #{selection_pulse_ox.entry.first.resource.id}"
+      end
+
+      # Observation Data Absent Reasons
+      # observation_profiles_valueQuantity_required = [
+      #   'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-bmi-for-age',
+      #   'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-weight-for-height',
+      #   'http://hl7.org/fhir/StructureDefinition/bmi',
+      # ]
+      observation_profiles_valueCodeableConcept_required = [
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-smokingstatus'
+      ]
+      observation_profiles_components_required = [
+        'http://hl7.org/fhir/StructureDefinition/bp'
+      ]
+      observation_profiles = [
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab',
+        # 'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-bmi-for-age',
+        # 'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-weight-for-height',
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-smokingstatus',
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry',
+        'http://hl7.org/fhir/StructureDefinition/resprate',
+        'http://hl7.org/fhir/StructureDefinition/heartrate',
+        'http://hl7.org/fhir/StructureDefinition/bodytemp',
+        'http://hl7.org/fhir/StructureDefinition/bodyheight',
+        'http://hl7.org/fhir/StructureDefinition/headcircum',
+        'http://hl7.org/fhir/StructureDefinition/bodyweight',
+        # 'http://hl7.org/fhir/StructureDefinition/bmi',
+        'http://hl7.org/fhir/StructureDefinition/bp'
+      ]
+      puts "  - Processing Observation Data Absent Reasons"
+      results.each do |bundle|
+        break if observation_profiles.empty?
+        observation_profiles.delete_if do |profile_url|
+          entry = bundle.entry.find {|e| e.resource.resourceType == 'Observation' && e.resource.meta&.profile&.include?(profile_url) }
+          if entry
+            instance = entry.resource
+            instance.dataAbsentReason = create_codeable_concept('http://terminology.hl7.org/CodeSystem/data-absent-reason', 'unknown', 'Unknown')
+            # if observation_profiles_valueQuantity_required.include?(profile_url)
+            #   instance.dataAbsentReason = nil
+            #   instance.valueQuantity.value = 'DATAABSENTREASONEXTENSIONGOESHERE' # Flag for primitive extension
+            # elsif
+            if observation_profiles_valueCodeableConcept_required.include?(profile_url)
+              instance.valueCodeableConcept = instance.dataAbsentReason
+              instance.dataAbsentReason = nil
+            elsif observation_profiles_components_required.include?(profile_url)
+              instance.component.each do |component|
+                component.valueQuantity = nil
+                component.dataAbsentReason = instance.dataAbsentReason
+              end
+            else
+              instance.valueQuantity = nil
+            end
+            puts "    - #{profile_url}: #{entry.fullUrl}"
+            true # delete this profile url from the list
+          else
+            false # keep searching for this profile url in the next bundle
+          end
+        end
+      end
+      unless observation_profiles.empty?
+        puts "  * Missed Observation Data Absent Reasons"
+        observation_profiles.each do |profile_url|
+          puts "    ** #{profile_url}"
+        end
       end
 
       # remove all resources from bundles that are not US Core profiles

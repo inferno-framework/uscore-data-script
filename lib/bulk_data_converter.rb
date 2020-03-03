@@ -45,6 +45,7 @@ module DataScript
         keys.each do |key, value|
           json.gsub!(key, value)
         end
+        # json.gsub!('"value": "DATAABSENTREASONEXTENSIONGOESHERE"', "\"_value\": { \"extension\": [ #{DataScript::Modifications.data_absent_reason.to_json} ] }")
 
         file = open_file(entry.resource)
         file.write(json)

@@ -3,7 +3,7 @@
 Creates a minimal set of complete, realistic synthetic patients for FHIR US Core v3.1.0
 by generating a population of patients in Synthea and finding a small representive set that
 contain all required data elements.  This small set of patients is ideal for testing
-because it is suitable for demonstrating support for all MUST SUPPORT data elements without requiring a large set of patients or sacrificing realism.
+because it is suitable for demonstrating support for MUST SUPPORT data elements without requiring a large set of patients or sacrificing realism.
 
 ## Install
 
@@ -61,6 +61,11 @@ After selecting patients, the data script then makes the following modifications
 
 Finally, the data script runs the FHIR Validator on each Bundle and writes the results to `./output/validation`
 
+## Miscellaneous
+
+- This script does not include every single Must Support element.
+  - In particular, [Observation.dataAbsentReason](http://hl7.org/fhir/us/core/STU3.1/general-guidance.html#missing-data)
+on Pediatric BMI and Pediatric Weight, because the `Observation.value[x]` are required fields. It is not valid for values to be absent.
 
 # License
 
