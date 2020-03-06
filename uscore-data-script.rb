@@ -36,7 +36,7 @@ CLASSPATH='lib/synthea/synthea.jar:lib/synthea/SimulationCoreLibrary_v1.5_slim.j
 CONFIG='--exporter.fhir.use_us_core_ig=true --exporter.baseDirectory=./output/raw --exporter.hospital.fhir.export=false --exporter.practitioner.fhir.export=false --exporter.groups.fhir.export=true'
 
 if MRBURNS
-  system( "java -cp #{CLASSPATH} App -s 0 -a 80-81 -g M -p 25 #{CONFIG} --exporter.years_of_history=0 > output/synthea.log" )
+  system( "java -cp #{CLASSPATH} App -s 3 -a 80-81 -g M -p 25 #{CONFIG} --exporter.years_of_history=0 > output/synthea.log" )
 else
   system( "java -cp #{CLASSPATH} App -s 3 -p 100 #{CONFIG} > output/synthea.log" )
 end
