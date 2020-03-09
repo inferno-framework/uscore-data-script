@@ -38,7 +38,7 @@ CONFIG='--exporter.fhir.use_us_core_ig=true --exporter.baseDirectory=./output/ra
 if MRBURNS
   system( "java -cp #{CLASSPATH} App -s 3 -a 80-81 -g M -p 25 #{CONFIG} --exporter.years_of_history=0 > output/synthea.log" )
 else
-  system( "java -cp #{CLASSPATH} App -s 3 -p 100 #{CONFIG} > output/synthea.log" )
+  system( "java -cp #{CLASSPATH} App -s 3 -p 160 #{CONFIG} > output/synthea.log" )
 end
 tok = Time.now.to_i
 puts "  Generated data in #{DataScript::TimeUtilities.pretty(tok - start)}."
@@ -177,12 +177,9 @@ end
 # Save selections
 tik = Time.now.to_i
 output_data = 'output/data'
-output_validation = 'output/validation'
 puts "Overwritting selections into ./#{output_data}"
 Dir.mkdir(output_data) unless File.exists?(output_data)
-Dir.mkdir(output_validation) unless File.exists?(output_validation)
 FileUtils.rm Dir.glob("./#{output_data}/*.json")
-FileUtils.rm Dir.glob("./#{output_validation}/*.txt")
 selections.each do |bundle|
   if bundle.resourceType == 'Bundle'
     id = bundle.entry.first.resource.id
@@ -195,9 +192,6 @@ selections.each do |bundle|
   # json_string.gsub!('"value": "DATAABSENTREASONEXTENSIONGOESHERE"', "\"_value\": { \"extension\": [ #{DataScript::Modifications.data_absent_reason.to_json} ] }")
   file.write( json_string )
   file.close
-  # run FHIR validator on output
-  validation_file = "#{output_validation}/#{id}.txt"
-  system( "java -jar lib/org.hl7.fhir.validator.jar #{filename} -version 4.0.1 -ig hl7.fhir.us.core > #{validation_file}" )
 end
 
 patient_without_name_json = nil
@@ -220,14 +214,10 @@ if patient_bundle_absent_name
   file = File.open(filename,'w:UTF-8')
   file.write(json)
   file.close
-  # run FHIR validator on output
-  puts 'Running FHIR validator on output.'
-  validation_file = "#{output_validation}/#{patient_bundle_absent_name.entry.first.resource.id}.txt"
-  system( "java -jar lib/org.hl7.fhir.validator.jar #{filename} -version 4.0.1 -ig hl7.fhir.us.core > #{validation_file}" )
 end
 
 tok = Time.now.to_i
-puts "  Saved and validated #{selections.length + (patient_bundle_absent_name ? 1 : 0)} files (#{DataScript::TimeUtilities.pretty(tok - tik)})."
+puts "  Saved #{selections.length + (patient_bundle_absent_name ? 1 : 0)} files (#{DataScript::TimeUtilities.pretty(tok - tik)})."
 
 # Save the selection records in the Bulk Data Format
 tik = Time.now.to_i
@@ -265,6 +255,33 @@ puts 'Cleaning...'
 ['Claim','ExplanationOfBenefit','ImagingStudy'].each do |resourceType|
   FileUtils.rm Dir.glob("./#{output}/**/#{resourceType}.ndjson")
 end
+
+# Validating
+tik = Time.now.to_i
+output_validation = 'output/validation'
+puts "Validating... Output logged in ./#{output_validation}"
+Dir.mkdir(output_validation) unless File.exists?(output_validation)
+FileUtils.rm Dir.glob("./#{output_validation}/*.txt")
+selections.each do |bundle|
+  if bundle.resourceType == 'Bundle'
+    id = bundle.entry.first.resource.id
+  else
+    id = bundle.id
+  end
+  # run FHIR validator on output
+  filename = "#{output_data}/#{id}.json"
+  validation_file = "#{output_validation}/#{id}.txt"
+  system( "java -jar lib/org.hl7.fhir.validator.jar #{filename} -version 4.0.1 -ig hl7.fhir.us.core > #{validation_file}" )
+end
+
+if patient_bundle_absent_name
+  filename = "#{output_data}/#{patient_bundle_absent_name.entry.first.resource.id}.json"
+  # run FHIR validator on output
+  validation_file = "#{output_validation}/#{patient_bundle_absent_name.entry.first.resource.id}.txt"
+  system( "java -jar lib/org.hl7.fhir.validator.jar #{filename} -version 4.0.1 -ig hl7.fhir.us.core > #{validation_file}" )
+end
+tok = Time.now.to_i
+puts "  Validated #{selections.length + (patient_bundle_absent_name ? 1 : 0)} files (#{DataScript::TimeUtilities.pretty(tok - tik)})."
 
 # Print the amount of time it took...
 stop = Time.now.to_i
