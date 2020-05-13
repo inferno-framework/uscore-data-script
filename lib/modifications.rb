@@ -70,7 +70,7 @@ module DataScript
             vitalspanel.meta = FHIR::Meta.new
             vitalspanel.meta.profile = [ 'http://hl7.org/fhir/StructureDefinition/vitalspanel', 'http://hl7.org/fhir/StructureDefinition/vitalsigns' ]
             vitalspanel.category = vitals.first.resource.category
-            vitalspanel.code = create_codeable_concept('http://loinc','85353-1','Vital signs, weight, height, head circumference, oxygen saturation and BMI panel')
+            vitalspanel.code = create_codeable_concept('http://loinc.org','85353-1','Vital signs, weight, height, head circumference, oxygen saturation and BMI panel')
             vitalspanel.effectiveDateTime = vitals.first.resource.effectiveDateTime
             vitalspanel.encounter = vitals.first.resource.encounter
             vitalspanel.issued = vitals.first.resource.issued
