@@ -1,6 +1,7 @@
 require 'base64'
 require 'securerandom'
 require_relative 'constraints'
+require 'fhir_models'
 
 module DataScript
   class Modifications
@@ -31,7 +32,7 @@ module DataScript
 
       # Add discharge disposition to first encounter of each record
       results.each do |bundle|
-        encounter_entry = bundle.entry.find {|e| e.resource.resourceType == 'Encounter'}
+        encounter_entry = bundle.entry.find { |e| e.resource.resourceType == 'Encounter' }
         encounter = encounter_entry.resource
         encounter.hospitalization = FHIR::Encounter::Hospitalization.new
         encounter.hospitalization.dischargeDisposition = create_codeable_concept('http://www.nubc.org/patient-discharge','01','Discharged to home care or self care (routine discharge)')
@@ -347,6 +348,84 @@ module DataScript
         # 'http://hl7.org/fhir/StructureDefinition/bmi',
         'http://hl7.org/fhir/StructureDefinition/bp'
       ]
+
+      resources_with_multiple_mustsupport_references = {
+        FHIR::CareTeam => [
+          {
+            fhirpath: 'participant.member',
+            required_ref_types: [
+              FHIR::Patient,
+              FHIR::Practitioner,
+              FHIR::Organization
+            ],
+            base_object: { role: [{ coding: [{ code: '223366009', system: 'http://snomed.info/sct', display: 'Healthcare provider' }] }] }
+          },
+        ],
+        FHIR::DiagnosticReport => [
+          {
+            fhirpath: 'performer',
+            required_ref_types: [
+              FHIR::Practitioner,
+              FHIR::Organization
+            ],
+            base_object: nil,
+          },
+        ],
+        FHIR::DocumentReference => [
+          {
+            fhirpath: 'author',
+            required_ref_types: [
+              FHIR::Patient,
+              FHIR::Practitioner,
+              FHIR::Organization
+            ],
+            base_object: nil
+          }
+        ],
+        FHIR::MedicationRequest => [
+          {
+            fhirpath: 'reportedReference',
+            required_ref_types: [
+              FHIR::Patient,
+              FHIR::Practitioner,
+              FHIR::Organization
+            ],
+            base_object: :self
+          },
+          {
+            fhirpath: 'requester',
+            required_ref_types: [
+              FHIR::Patient,
+              FHIR::Practitioner,
+              FHIR::Organization,
+              FHIR::Device
+            ],
+            base_object: :self
+          }
+        ],
+        FHIR::Provenance => [
+          {
+            fhirpath: 'agent.who',
+            required_ref_types: [
+              FHIR::Patient,
+              FHIR::Practitioner,
+              FHIR::Organization
+            ],
+            base_object: {
+              type: {
+                coding: [
+                  {
+                    code: 'author',
+                    display: 'Author',
+                    system: 'http://terminology.hl7.org/CodeSystem/provenance-participant-type'
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+
       puts "  - Processing Observation Data Absent Reasons"
       results.each do |bundle|
         break if observation_profiles.empty?
@@ -399,6 +478,60 @@ module DataScript
         provenance.target.keep_if {|reference| uuids.include?(reference.reference) }
       end
       puts "  - Rewrote Provenance targets."
+
+      bundle_with_all = results.find do |b|
+        DataScript::Constraints.has(b, FHIR::Patient) &&
+          DataScript::Constraints.has(b, FHIR::Practitioner) &&
+          DataScript::Constraints.has(b, FHIR::Organization) &&
+          DataScript::Constraints.has(b, FHIR::Device) &&
+          DataScript::Constraints.has(b, FHIR::CareTeam) &&
+          DataScript::Constraints.has(b, FHIR::DiagnosticReport) &&
+          DataScript::Constraints.has(b, FHIR::DocumentReference) &&
+          DataScript::Constraints.has(b, FHIR::Provenance)
+      end
+      references = {
+        FHIR::Patient => { reference: "urn:uuid:#{bundle_with_all.entry.find { |e| e.resource.is_a? FHIR::Patient }&.resource&.id}" },
+        FHIR::Practitioner => { reference: "urn:uuid:#{bundle_with_all.entry.find { |e| e.resource.is_a? FHIR::Practitioner }&.resource&.id}" },
+        FHIR::Organization => { reference: "urn:uuid:#{bundle_with_all.entry.find { |e| e.resource.is_a? FHIR::Organization }&.resource&.id}" },
+        FHIR::Device => { reference: "urn:uuid:#{bundle_with_all.entry.find { |e| e.resource.is_a? FHIR::Device }&.resource&.id}" }
+      }
+
+      binding.pry
+
+      resources_with_multiple_mustsupport_references.each do |resource_class, reference_attrs|
+        resource = bundle_with_all.entry.find { |e| e.resource.is_a? resource_class }&.resource
+        reference_attrs.each do |attrs|
+          begin
+            extant_ref_types = FHIRPath.evaluate(attrs[:fhirpath], resource&.to_hash)
+                                      .collect { |ref| get_reference_type(bundle_with_all, ref['reference']) }
+                                      .uniq
+          rescue
+            extant_ref_types = []
+          end
+          # Subtracting one array from the other will provide a list of elements
+          # in needed_ref_types that aren't in extant_ref_types
+          missing_ref_types = attrs[:required_ref_types] - extant_ref_types
+          begin
+            missing_ref_types.each do |missing_type|
+              missing_reference = references[missing_type]
+              if attrs[:base_object] == :self
+                ref_obj = FHIR::Json.from_json(resource.to_json)
+                ref_obj.id = SecureRandom.uuid
+                ref_obj.send("#{attrs[:fhirpath]}=", missing_reference)
+                bundle.entry << create_bundle_entry(ref_obj)
+              elsif !attrs[:base_object].nil?
+                fhirpath_split = attrs[:fhirpath].split('.')
+                ref_obj = attrs[:base_object].clone[fhirpath_split.last.to_sym]
+                resource.send(fhirpath_split.first).push(ref_obj)
+              else
+                resource.send(attrs[:fhirpath]).push(missing_reference)
+              end
+            end
+          rescue => e
+            binding.pry
+          end
+        end
+      end
 
       # Add Group
       results << create_group(results)
@@ -503,6 +636,11 @@ module DataScript
         entry.request.local_method = 'POST'
         entry.request.url = resource.resourceType
         entry
+    end
+
+    def self.get_reference_type(b, reference_string)
+      id = reference_string.split(':').last
+      b.entry.find { |e| e.resource.id == id }&.resource&.class
     end
   end
 end

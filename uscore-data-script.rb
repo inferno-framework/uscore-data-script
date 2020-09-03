@@ -177,7 +177,8 @@ end
 # Save selections
 tik = Time.now.to_i
 output_data = 'output/data'
-puts "Overwritting selections into ./#{output_data}"
+output_validation = 'output/validation'
+puts "Overwriting selections into ./#{output_data}"
 Dir.mkdir(output_data) unless File.exists?(output_data)
 FileUtils.rm Dir.glob("./#{output_data}/*.json")
 selections.each do |bundle|
@@ -214,6 +215,10 @@ if patient_bundle_absent_name
   file = File.open(filename,'w:UTF-8')
   file.write(json)
   file.close
+  # run FHIR validator on output
+  puts 'Running FHIR validator on output.'
+  validation_file = "#{output_validation}/#{patient_bundle_absent_name.entry.first.resource.id}.txt"
+  system( "java -jar lib/org.hl7.fhir.validator.jar #{filename} -version 4.0.1 -ig hl7.fhir.us.core#3.1.0 > #{validation_file}" )
 end
 
 tok = Time.now.to_i
