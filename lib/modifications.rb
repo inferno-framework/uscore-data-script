@@ -2,6 +2,7 @@ require 'base64'
 require 'securerandom'
 require_relative 'constraints'
 require 'fhir_models'
+require 'time'
 
 module DataScript
   class Modifications
@@ -55,9 +56,9 @@ module DataScript
         # find the provenance for this bundle
         provenance = bundle.entry.find { |e| e.resource.resourceType == 'Provenance' }
         # get all the encounters
-        encounters = bundle.entry.select {|e| e.resource.resourceType == 'Encounter'}
+        encounters = bundle.entry.select { |e| e.resource.resourceType == 'Encounter' }
         # get all the observations
-        observations = bundle.entry.select {|e| e.resource.resourceType == 'Observation'}
+        observations = bundle.entry.select { |e| e.resource.resourceType == 'Observation' }
         # add a vitalspanel to each encounter where appropriate
         encounters.each do |entry|
           encounter_url = entry.fullUrl
@@ -97,7 +98,7 @@ module DataScript
       puts "  - Created #{new_vitalspanels} vitalspanels"
 
       # Make sure at least one organization has an NPI
-      organization_entry = results.last.entry.find {|e| e.resource.resourceType == 'Organization' }
+      organization_entry = results.last.entry.find { |e| e.resource.resourceType == 'Organization' }
       organization = organization_entry.resource
       # Add a 10 digit NPI
       organization.identifier << FHIR::Identifier.new
@@ -109,7 +110,7 @@ module DataScript
       organization.identifier.last.value = '9999999999'
 
       # Add a PractitionerRole.endpoint
-      pr_entry = results.last.entry.find {|e| e.resource.resourceType == 'PractitionerRole' }
+      pr_entry = results.last.entry.find { |e| e.resource.resourceType == 'PractitionerRole' }
       pr = pr_entry.resource
       pr.endpoint = [ FHIR::Reference.new ]
       pr.endpoint.first.reference = '#endpoint'
@@ -120,7 +121,7 @@ module DataScript
       endpoint.connectionType = create_codeable_concept('http://terminology.hl7.org/CodeSystem/endpoint-connection-type', 'direct-project', 'Direct Project').coding.first
       endpoint.payloadType = [ create_codeable_concept('http://terminology.hl7.org/CodeSystem/endpoint-payload-type', 'any', 'Any') ]
       endpoint.address = "mailto:#{pr.telecom.last.value}"
-      pr.contained = [ endpoint ]
+      pr.contained = [endpoint]
 
       # select by smoking status
       selection_smoker = results.find {|b| DataScript::Constraints.smoker(b)}
@@ -222,9 +223,9 @@ module DataScript
       selection_medication = results.find {|b| DataScript::Constraints.has(b, FHIR::Medication)}
       unless selection_medication
         # if there is no free-standing Medication resource, we need to make one.
-        bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::MedicationRequest) }
-        medreq = bundle.entry.find { |e| e.resource.resourceType == 'MedicationRequest' }
-        provenance = bundle.entry.find { |e| e.resource.resourceType == 'Provenance' }
+        med_bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::MedicationRequest) }
+        medreq = med_bundle.entry.find { |e| e.resource.resourceType == 'MedicationRequest' }
+        provenance = med_bundle.entry.find { |e| e.resource.resourceType == 'Provenance' }
         # create the medication
         med = FHIR::Medication.new
         med.id = SecureRandom.uuid
@@ -238,11 +239,11 @@ module DataScript
         medreq.resource.medicationReference = FHIR::Reference.new
         medreq.resource.medicationReference.reference = "urn:uuid:#{med.id}"
         # add the Medication as a new Bundle entry
-        bundle.entry << create_bundle_entry(med)
+        med_bundle.entry << create_bundle_entry(med)
         # add the Medication into the provenance
         provenance.resource.target << FHIR::Reference.new
         provenance.resource.target.last.reference = "urn:uuid:#{med.id}"
-        puts "  - Altered Medication: #{bundle.entry.first.resource.id}"
+        puts "  - Altered Medication: #{med_bundle.entry.first.resource.id}"
       end
 
       # select by device
@@ -308,7 +309,7 @@ module DataScript
           pulse_ox_clone.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
           pulse_ox_clone.component.last.valueQuantity.code = '%'
           # add the Pulse Oximetry as a new Bundle entry
-          selection_device.entry << create_bundle_entry(pulse_ox_clone)
+          selection_pulse_ox.entry << create_bundle_entry(pulse_ox_clone)
           # add the Pulse Oximetry into the provenance
           provenance.resource.target << FHIR::Reference.new
           provenance.resource.target.last.reference = "urn:uuid:#{pulse_ox_clone.id}"
@@ -319,6 +320,22 @@ module DataScript
           component.dataAbsentReason = create_codeable_concept('http://terminology.hl7.org/CodeSystem/data-absent-reason', 'unknown', 'Unknown')
         end
         puts "  - Cloned Pulse Oximetry and Added Components: #{selection_pulse_ox.entry.first.resource.id}"
+      end
+
+      goal_bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::Goal) }
+      unless goal_bundle
+        goal_bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::Patient) }
+        goal = FHIR::Goal.new
+        goal.meta = FHIR::Meta.new
+        goal.meta.profile = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-goal'
+        goal.id = SecureRandom.uuid
+        goal.lifecycleStatus = 'active'
+        goal.description = create_codeable_concept('http://snomed.info/sct', '281004', 'Alcoholic dementia')
+        goal.subject = { reference: "urn:uuid:#{DataScript::Constraints.patient(goal_bundle).id}" }
+        goal_target = FHIR::Goal::Target.new
+        goal_target.dueDate = Time.now.strftime("%Y-%m-%d")
+        goal.target << goal_target
+        goal_bundle.entry << create_bundle_entry(goal)
       end
 
       # Observation Data Absent Reasons
@@ -358,19 +375,10 @@ module DataScript
               FHIR::Practitioner,
               FHIR::Organization
             ],
-            base_object: { role: [{ coding: [{ code: '223366009', system: 'http://snomed.info/sct', display: 'Healthcare provider' }] }] }
+            base_object: FHIR::CareTeam::Participant.new.from_hash({ role: [{ coding: [{ code: '223366009', system: 'http://snomed.info/sct', display: 'Healthcare provider' }] }] })
           },
         ],
-        FHIR::DiagnosticReport => [
-          {
-            fhirpath: 'performer',
-            required_ref_types: [
-              FHIR::Practitioner,
-              FHIR::Organization
-            ],
-            base_object: nil,
-          },
-        ],
+        # NOTE: DiagnosticReport should be here, but because of the difficulties around the two profiles, we handle it elsewhere
         FHIR::DocumentReference => [
           {
             fhirpath: 'author',
@@ -411,7 +419,7 @@ module DataScript
               FHIR::Practitioner,
               FHIR::Organization
             ],
-            base_object: {
+            base_object: FHIR::Provenance::Agent.new.from_hash({
               type: {
                 coding: [
                   {
@@ -421,7 +429,7 @@ module DataScript
                   }
                 ]
               }
-            }
+            })
           }
         ]
       }
@@ -496,41 +504,62 @@ module DataScript
         FHIR::Device => { reference: "urn:uuid:#{bundle_with_all.entry.find { |e| e.resource.is_a? FHIR::Device }&.resource&.id}" }
       }
 
-      binding.pry
-
       resources_with_multiple_mustsupport_references.each do |resource_class, reference_attrs|
-        resource = bundle_with_all.entry.find { |e| e.resource.is_a? resource_class }&.resource
-        reference_attrs.each do |attrs|
-          begin
-            extant_ref_types = FHIRPath.evaluate(attrs[:fhirpath], resource&.to_hash)
-                                      .collect { |ref| get_reference_type(bundle_with_all, ref['reference']) }
-                                      .uniq
-          rescue
-            extant_ref_types = []
-          end
-          # Subtracting one array from the other will provide a list of elements
-          # in needed_ref_types that aren't in extant_ref_types
-          missing_ref_types = attrs[:required_ref_types] - extant_ref_types
-          begin
+        resources = bundle_with_all.entry.find_all { |e| e.resource.is_a? resource_class }.map { |e| e.resource }
+        resources.each do |resource|
+          reference_attrs.each do |attrs|
+            begin
+              extant_ref_types = FHIRPath.evaluate(attrs[:fhirpath], resource&.to_hash)
+                                        .collect { |ref| get_reference_type(bundle_with_all, ref['reference']) }
+                                        .uniq
+            rescue
+              extant_ref_types = []
+            end
+            # Subtracting one array from the other will provide a list of elements
+            # in needed_ref_types that aren't in extant_ref_types
+            missing_ref_types = attrs[:required_ref_types] - extant_ref_types
             missing_ref_types.each do |missing_type|
               missing_reference = references[missing_type]
               if attrs[:base_object] == :self
                 ref_obj = FHIR::Json.from_json(resource.to_json)
                 ref_obj.id = SecureRandom.uuid
                 ref_obj.send("#{attrs[:fhirpath]}=", missing_reference)
-                bundle.entry << create_bundle_entry(ref_obj)
+                bundle_with_all.entry << create_bundle_entry(ref_obj)
               elsif !attrs[:base_object].nil?
                 fhirpath_split = attrs[:fhirpath].split('.')
-                ref_obj = attrs[:base_object].clone[fhirpath_split.last.to_sym]
+                ref_obj = attrs[:base_object].class.new.from_hash(attrs[:base_object].to_hash)
+                ref_obj.send("#{fhirpath_split.last}=", missing_reference)
                 resource.send(fhirpath_split.first).push(ref_obj)
               else
                 resource.send(attrs[:fhirpath]).push(missing_reference)
               end
             end
-          rescue => e
-            binding.pry
           end
         end
+      end
+
+      # DiagnosticReports need to have two performer types, so we add them here
+      dr_bundle = results.find do |b|
+        b.entry.any? do |e|
+          e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta.profile.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-note')
+        end &&
+          b.entry.any? do |e|
+            e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta.profile.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab')
+          end
+      end
+      dr_notes = dr_bundle.entry.find_all do |e|
+        e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta.profile.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-note')
+      end.map {|e| e.resource }
+      dr_labs = dr_bundle.entry.find_all do |e|
+        e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta.profile.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab')
+      end.map {|e| e.resource }
+      dr_practitioner = dr_bundle.entry.find { |e| e.resource.is_a? FHIR::Practitioner }.resource.id
+      dr_organization = dr_bundle.entry.find { |e| e.resource.is_a? FHIR::Organization }.resource.id
+      puts "DR Practitioner id: #{dr_practitioner}"
+      puts "DR Org ID: #{dr_organization}"
+      dr_notes.concat(dr_labs).each do |dr|
+        dr.performer << { reference: "urn:uuid:#{dr_practitioner}" }
+        dr.performer << { reference: "urn:uuid:#{dr_organization}" }
       end
 
       # Add Group
