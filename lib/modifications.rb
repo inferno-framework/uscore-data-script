@@ -238,6 +238,7 @@ module DataScript
         medreq.resource.medicationCodeableConcept = nil
         medreq.resource.medicationReference = FHIR::Reference.new
         medreq.resource.medicationReference.reference = "urn:uuid:#{med.id}"
+        medreq.resource.status = 'active'
         # add the Medication as a new Bundle entry
         med_bundle.entry << create_bundle_entry(med)
         # add the Medication into the provenance
@@ -336,6 +337,9 @@ module DataScript
         goal_target.dueDate = Time.now.strftime("%Y-%m-%d")
         goal.target << goal_target
         goal_bundle.entry << create_bundle_entry(goal)
+        goal_provenance = goal_bundle.entry.find { |e| e.resource.resourceType == 'Provenance' }
+        goal_provenance.resource.target << FHIR::Reference.new
+        goal_provenance.resource.target.last.reference = "urn:uuid:#{goal.id}"
       end
 
       # Observation Data Absent Reasons
