@@ -426,16 +426,14 @@ module DataScript
 
       puts "  - Processing Observation Data Absent Reasons"
       results.each do |bundle|
+        provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
         break if observation_profiles.empty?
         observation_profiles.delete_if do |profile_url|
           entry = bundle.entry.find {|e| e.resource.resourceType == 'Observation' && e.resource.meta&.profile&.include?(profile_url) }
           if entry
-            instance = entry.resource
+            instance = FHIR::Json.from_json(entry.resource.to_json)
+            instance.id = SecureRandom.uuid
             instance.dataAbsentReason = create_codeable_concept('http://terminology.hl7.org/CodeSystem/data-absent-reason', 'unknown', 'Unknown')
-            # if observation_profiles_valueQuantity_required.include?(profile_url)
-            #   instance.dataAbsentReason = nil
-            #   instance.valueQuantity.value = 'DATAABSENTREASONEXTENSIONGOESHERE' # Flag for primitive extension
-            # elsif
             if observation_profiles_valueCodeableConcept_required.include?(profile_url)
               instance.valueCodeableConcept = instance.dataAbsentReason
               instance.dataAbsentReason = nil
@@ -447,7 +445,11 @@ module DataScript
             else
               instance.valueQuantity = nil
             end
-            puts "    - #{profile_url}: #{entry.fullUrl}"
+            new_entry = create_bundle_entry(instance)
+            provenance.target << FHIR::Reference.new
+            provenance.target.last.reference = "urn:uuid:#{instance.id}"
+            bundle.entry << new_entry
+            puts "    - #{profile_url}: #{new_entry.fullUrl}"
             true # delete this profile url from the list
           else
             false # keep searching for this profile url in the next bundle
