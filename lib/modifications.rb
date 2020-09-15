@@ -7,6 +7,7 @@ require 'time'
 module DataScript
   class Modifications
     def self.modify!(results)
+      FHIR.logger.level = :info
       # results is an Array of FHIR::Bundle objects,
       # where the first resource is a Patient.
 
