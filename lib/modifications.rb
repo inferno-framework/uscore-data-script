@@ -465,7 +465,7 @@ module DataScript
 
       # remove all resources from bundles that are not US Core profiles
       results.each do |bundle|
-        bundle.entry.delete_if {|e| ['Claim','ExplanationOfBenefit','ImagingStudy'].include?(e.resource.resourceType)}
+        bundle.entry.delete_if {|e| ['Claim','ExplanationOfBenefit','ImagingStudy','MedicationAdministration','SupplyDelivery'].include?(e.resource.resourceType)}
       end
       puts "  - Removed resources out of scope for US Core."
       # There are probably some observations remaining after this that are not US Core profiles,
