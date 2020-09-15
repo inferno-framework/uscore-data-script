@@ -141,10 +141,10 @@ module DataScript
       selection_note = results.find {|b| DataScript::Constraints.has(b, FHIR::DocumentReference)}
       if selection_note
         # modify it to have a URL rather than base64 encoded data
-        docref = selection_note.entry.reverse.find {|e| e.resource.resourceType == 'DocumentReference' }.resource
-        report = selection_note.entry.reverse.find {|e|
-          e.resource.resourceType == 'DiagnosticReport' &&
-          e.resource.presentedForm.first.data == docref.content.first.attachment.data }.resource
+        docref = selection_note.entry.reverse.find { |e| e.resource.resourceType == 'DocumentReference' }.resource
+        report = selection_note.entry.reverse.find { |e|
+          e&.resource&.resourceType == 'DiagnosticReport' &&
+            e&.resource&.presentedForm&.first&.data == docref&.content&.first&.attachment&.data }&.resource
         url = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
         docref.content.first.attachment.contentType = 'application/pdf'
         docref.content.first.attachment.data = nil
@@ -183,11 +183,13 @@ module DataScript
       # so we need to filter them...
       docref_data = all_docref.map {|r| r.content.first.attachment.data}
       matching_report = all_report.select { |r| r.presentedForm.length >= 1 && docref_data.include?(r.presentedForm.first.data) }
+
       # need to replace the codes...
       # we will use a uniform distribution of note_types
       note_types_index = 0
       category_types_index = 0
       all_docref.zip(matching_report).each do |docref, report|
+        break if report.nil?
         docref.type = note_types[note_types_index]
         report.category = [ category_types[category_types_index] ]
         report.code = note_types[note_types_index]
