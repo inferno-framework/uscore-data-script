@@ -32,71 +32,54 @@ module DataScript
         bundle.entry.first.resource.address.first.period.start = bundle.entry.first.resource.birthDate
       end
 
-      # Add discharge disposition to first encounter of each record
+      # Make sure there aren't stupid numbers of every resource type
+      missing_profiles = DataScript::Constraints::REQUIRED_PROFILES.dup
       results.each do |bundle|
-        encounter_entry = bundle.entry.find { |e| e.resource.resourceType == 'Encounter' }
-        encounter = encounter_entry.resource
-        encounter.hospitalization = FHIR::Encounter::Hospitalization.new
-        encounter.hospitalization.dischargeDisposition = create_codeable_concept('http://www.nubc.org/patient-discharge','01','Discharged to home care or self care (routine discharge)')
-      end
+        resource_counts = get_resource_counts(bundle).sort
+        # Move DocumentReferences to the front, so we delete them first (and don't have reference issues)
+        resource_counts.insert(0, resource_counts.delete(resource_counts.find { |k, _| k == 'DocumentReference' }))
+        # Move Encounters to the end, so we know which ones are safe to delete
+        resource_counts.append(resource_counts.delete(resource_counts.find { |k, _| k == 'Encounter' }))
+        provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
+        resource_counts.each do |type, count|
+          next unless count >= 50
 
-      # create vitalspanel
-      panel_members = [
-        'http://hl7.org/fhir/StructureDefinition/resprate',
-        'http://hl7.org/fhir/StructureDefinition/heartrate',
-        'http://hl7.org/fhir/StructureDefinition/oxygensat',
-        'http://hl7.org/fhir/StructureDefinition/bodytemp',
-        'http://hl7.org/fhir/StructureDefinition/bodyheight',
-        'http://hl7.org/fhir/StructureDefinition/headcircum',
-        'http://hl7.org/fhir/StructureDefinition/bodyweight',
-        'http://hl7.org/fhir/StructureDefinition/bmi',
-        'http://hl7.org/fhir/StructureDefinition/bp'
-      ]
-      new_vitalspanels = 0
-      results.each do |bundle|
-        # find the provenance for this bundle
-        provenance = bundle.entry.find { |e| e.resource.resourceType == 'Provenance' }
-        # get all the encounters
-        encounters = bundle.entry.select { |e| e.resource.resourceType == 'Encounter' }
-        # get all the observations
-        observations = bundle.entry.select { |e| e.resource.resourceType == 'Observation' }
-        # add a vitalspanel to each encounter where appropriate
-        encounters.each do |entry|
-          encounter_url = entry.fullUrl
-          obs = observations.select {|e| e.resource.encounter.reference == encounter_url}
-          vitals = obs.select {|e| e.resource.meta && (e.resource.meta.profile & panel_members).any?}
-          if vitals && !vitals.empty?
-            # create a vitalspanel
-            vitalspanel = FHIR::Observation.new
-            vitalspanel.id = SecureRandom.uuid
-            vitalspanel.status = 'final'
-            vitalspanel.meta = FHIR::Meta.new
-            vitalspanel.meta.profile = [ 'http://hl7.org/fhir/StructureDefinition/vitalspanel', 'http://hl7.org/fhir/StructureDefinition/vitalsigns' ]
-            vitalspanel.category = vitals.first.resource.category
-            vitalspanel.code = create_codeable_concept('http://loinc.org','85353-1','Vital signs, weight, height, head circumference, oxygen saturation and BMI panel')
-            vitalspanel.effectiveDateTime = vitals.first.resource.effectiveDateTime
-            vitalspanel.encounter = vitals.first.resource.encounter
-            vitalspanel.issued = vitals.first.resource.issued
-            vitalspanel.subject = vitals.first.resource.subject
-            vitalspanel.hasMember = []
-            vitals.each do |member|
-              reference = FHIR::Reference.new
-              reference.reference = member.fullUrl
-              reference.display = member.resource.code.text
-              vitalspanel.hasMember << reference
+          deleted_ids = []
+          dr_observations = get_diagreport_referenced_observations(bundle)
+          dr_notes = get_docref_referenced_attachments(bundle)
+          encounter_refs = get_referenced_encounters(bundle)
+          references = dr_observations + dr_notes + encounter_refs
+          bundle.entry.find_all { |e| e.resource.resourceType == type }.shuffle.each do |e|
+            break if deleted_ids.count >= (count - 50)
+
+            profiles = e.resource&.meta&.profile ? e.resource&.meta&.profile : []
+
+            # Only delete it if it's not somehow important
+            if !references.include?(e.resource.id) &&
+               !e.resource.is_a?(FHIR::Observation) &&
+               !e.resource&.code&.text == 'Tobacco smoking status NHIS' &&
+               (missing_profiles & profiles).empty?
+              deleted_ids << e.resource.id
+            elsif !(missing_profiles & profiles).empty?
+              missing_profiles -= profiles
             end
-            # create an entry
-            bundle.entry << create_bundle_entry(vitalspanel)
-            # add the new vitalspanel to the provenance resource
-            if provenance
-              provenance.resource.target << FHIR::Reference.new
-              provenance.resource.target.last.reference = "urn:uuid:#{vitalspanel.id}"
-            end
-            new_vitalspanels += 1
           end
+          bundle.entry.delete_if { |e| deleted_ids.include? e.resource.id }
+          remove_provenance_targets(deleted_ids, provenance)
         end
       end
-      puts "  - Created #{new_vitalspanels} vitalspanels"
+
+      # Add discharge disposition to every encounter referenced by a medicationRequest of each record
+      # This is necessary (rather than just one) because of how Inferno Program has to get Encounters
+      results.each do |bundle|
+        encounter_urls = bundle.entry.find_all { |e| e.resource.resourceType == 'MedicationRequest' }.map {|e| e.resource&.encounter&.reference }.compfact.uniq
+        encounter_urls.each do |encounter_url|
+          encounter_entry = bundle.entry.find { |e| e.fullUrl == encounter_url }
+          encounter = encounter_entry.resource
+          encounter.hospitalization = FHIR::Encounter::Hospitalization.new
+          encounter.hospitalization.dischargeDisposition = create_codeable_concept('http://www.nubc.org/patient-discharge','01','Discharged to home care or self care (routine discharge)')
+        end
+      end
 
       # Make sure at least one organization has an NPI
       organization_entry = results.last.entry.find { |e| e.resource.resourceType == 'Organization' }
@@ -675,6 +658,47 @@ module DataScript
     def self.get_reference_type(b, reference_string)
       id = reference_string.split(':').last
       b.entry.find { |e| e.resource.id == id }&.resource&.class
+    end
+
+    def self.get_resource_counts(bundle)
+      resource_counts = {}
+      bundle.entry.each do |entry|
+        resource_type = entry.resource.resourceType
+        if resource_counts[resource_type]
+          resource_counts[resource_type] += 1
+        else
+          resource_counts[resource_type] = 1
+        end
+      end
+      resource_counts
+    end
+
+    def self.get_diagreport_referenced_observations(bundle)
+      bundle.entry.flat_map do |entry|
+        next unless entry.resource.is_a? FHIR::DiagnosticReport
+        entry.resource.result.map { |r| r&.reference&.split(':')&.last }
+      end.uniq
+    end
+
+    def self.get_docref_referenced_attachments(bundle)
+      docrefs = bundle.entry.find_all { |e| e.resource.is_a? FHIR::DocumentReference}
+      docrefs.map do |docref|
+        bundle.entry.reverse.find { |e|
+          e&.resource&.resourceType == 'DiagnosticReport' &&
+            e&.resource&.presentedForm&.first&.data == docref&.resource&.content&.first&.attachment&.data }&.resource&.id
+      end.uniq
+    end
+
+    def self.get_referenced_encounters(bundle)
+      bundle.entry.map do |e|
+        e.resource&.encounter&.reference&.split(':')&.last if e.resource.respond_to? :encounter
+      end.compact.uniq
+    end
+
+    def self.remove_provenance_targets(ids, provenance)
+      ids.each do |id|
+        provenance.target.delete_if { |target| target.id == id }
+      end
     end
   end
 end
