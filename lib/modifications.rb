@@ -212,6 +212,11 @@ module DataScript
       end
       puts "  - Altered codes for #{all_docref.length} clinical notes."
 
+      all_docref.each do |docref|
+        docref&.identifier&.each {|id| id.value = "urn:uuid:#{id.value}" if (id.system == 'urn:ietf:rfc:3986' && !id.value&.start_with?('urn'))}
+      end
+      puts "  - Altered identifiers for #{all_docref.length} clinical notes."
+
       # select by medication
       selection_medication = results.find {|b| DataScript::Constraints.has(b, FHIR::Medication)}
       unless selection_medication
