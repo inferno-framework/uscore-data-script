@@ -6,8 +6,11 @@ require 'time'
 
 module DataScript
   class Modifications
-    def self.modify!(results)
+    def self.modify!(results, random_seed = 3)
       FHIR.logger.level = :info
+
+      # Create a random number generator, to pass to things that need randomness
+      rng = Random.new(random_seed)
       # results is an Array of FHIR::Bundle objects,
       # where the first resource is a Patient.
 
@@ -49,7 +52,7 @@ module DataScript
           dr_notes = get_docref_referenced_attachments(bundle)
           encounter_refs = get_referenced_encounters(bundle)
           references = dr_observations + dr_notes + encounter_refs
-          bundle.entry.find_all { |e| e.resource.resourceType == type }.shuffle.each do |e|
+          bundle.entry.find_all { |e| e.resource.resourceType == type }.shuffle(random: rng).each do |e|
             break if deleted_ids.count >= (count - 50)
 
             profiles = e.resource&.meta&.profile ? e.resource&.meta&.profile : []
@@ -57,7 +60,7 @@ module DataScript
             # Only delete it if it's not somehow important
             if !references.include?(e.resource.id) &&
                !e.resource.is_a?(FHIR::Observation) &&
-               !e.resource&.code&.text == 'Tobacco smoking status NHIS' &&
+               (!e.resource.respond_to?(:code) || !e.resource&.code&.text == 'Tobacco smoking status NHIS') &&
                (missing_profiles & profiles).empty?
               deleted_ids << e.resource.id
             elsif !(missing_profiles & profiles).empty?
@@ -72,7 +75,7 @@ module DataScript
       # Add discharge disposition to every encounter referenced by a medicationRequest of each record
       # This is necessary (rather than just one) because of how Inferno Program has to get Encounters
       results.each do |bundle|
-        encounter_urls = bundle.entry.find_all { |e| e.resource.resourceType == 'MedicationRequest' }.map {|e| e.resource&.encounter&.reference }.compfact.uniq
+        encounter_urls = bundle.entry.find_all { |e| e.resource.resourceType == 'MedicationRequest' }.map {|e| e.resource&.encounter&.reference }.compact.uniq
         encounter_urls.each do |encounter_url|
           encounter_entry = bundle.entry.find { |e| e.fullUrl == encounter_url }
           encounter = encounter_entry.resource
@@ -126,7 +129,7 @@ module DataScript
       end
       # select the person with the most Conditions
       selection_conditions = results.last
-      alter_condition(selection_conditions)
+      alter_condition(selection_conditions, rng)
       puts "  - Altered Condition:  #{selection_conditions.entry.first.resource.id}"
 
       # select someone with the most numerous gender
@@ -589,9 +592,9 @@ module DataScript
       bundle.entry.first.resource.name = [ human_name ]
     end
 
-    def self.alter_condition(bundle)
+    def self.alter_condition(bundle, rng)
       # randomly pick one of their Conditions
-      random_condition = bundle.entry.map {|e| e.resource }.select {|r| r.resourceType == 'Condition'}.shuffle.last
+      random_condition = bundle.entry.map {|e| e.resource }.select {|r| r.resourceType == 'Condition'}.sample(random: rng)
       # and replace the category with a data-absent-reason
       unknown = FHIR::CodeableConcept.new
       unknown.extension = [ data_absent_reason ]

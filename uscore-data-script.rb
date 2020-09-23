@@ -6,6 +6,8 @@ require './lib/constraints.rb'
 require './lib/modifications.rb'
 require './lib/bulk_data_converter.rb'
 
+RAND_SEED = 3
+
 start = Time.now.to_i
 
 if ARGV && ARGV.length >= 1 && ARGV.include?('mrburns')
@@ -17,7 +19,7 @@ if ARGV && ARGV.length >= 1 && ARGV.include?('mrburns')
   DataScript::Constraints::CONSTRAINTS.merge!(DataScript::Constraints::CONSTRAINTS_MRBURNS)
   DataScript::Constraints::REQUIRED_PROFILES.delete('http://hl7.org/fhir/us/core/StructureDefinition/us-core-medication')
 else
-  MRBURNS=false
+  MRBURNS = false
 end
 
 puts 'Generating Synthetic Patients with Synthea...'
@@ -36,9 +38,9 @@ CLASSPATH='lib/synthea/synthea.jar:lib/synthea/SimulationCoreLibrary_v1.5_slim.j
 CONFIG='--exporter.fhir.use_us_core_ig=true --exporter.baseDirectory=./output/raw --exporter.hospital.fhir.export=false --exporter.practitioner.fhir.export=false --exporter.groups.fhir.export=true'
 
 if MRBURNS
-  system( "java -cp #{CLASSPATH} App -s 3 -a 80-81 -g M -p 30 #{CONFIG} --exporter.years_of_history=0 > output/synthea.log" )
+  system( "java -cp #{CLASSPATH} App -s #{RAND_SEED} -a 80-81 -g M -p 30 #{CONFIG} --exporter.years_of_history=0 > output/synthea.log" )
 else
-  system( "java -cp #{CLASSPATH} App -s 3 -p 160 #{CONFIG} > output/synthea.log" )
+  system( "java -cp #{CLASSPATH} App -s #{RAND_SEED} -p 160 #{CONFIG} > output/synthea.log" )
 end
 tok = Time.now.to_i
 puts "  Generated data in #{DataScript::TimeUtilities.pretty(tok - start)}."
@@ -146,7 +148,7 @@ puts "  Selected #{selections.length} patients (#{DataScript::TimeUtilities.pret
 
 # post-process selections
 puts 'Modifying selected patients...'
-patient_bundle_absent_name = DataScript::Modifications.modify!(selections)
+patient_bundle_absent_name = DataScript::Modifications.modify!(selections, RAND_SEED)
 tik = Time.now.to_i
 puts "  Modified patients (#{DataScript::TimeUtilities.pretty(tik - tok)})."
 group = selections.pop
