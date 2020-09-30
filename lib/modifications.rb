@@ -45,22 +45,23 @@ module DataScript
         resource_counts.append(resource_counts.delete(resource_counts.find { |k, _| k == 'Encounter' }))
         provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
         resource_counts.each do |type, count|
-          next unless count >= 50
+          next unless count >= 30
 
           deleted_ids = []
           dr_observations = get_diagreport_referenced_observations(bundle)
           dr_notes = get_docref_referenced_attachments(bundle)
           encounter_refs = get_referenced_encounters(bundle)
-          references = dr_observations + dr_notes + encounter_refs
+          reason_refs = get_referenced_reasons(bundle)
+          addresses_refs = get_addresses(bundle)
+          references = (dr_observations + dr_notes + encounter_refs + reason_refs + addresses_refs).compact.uniq
           bundle.entry.find_all { |e| e.resource.resourceType == type }.shuffle(random: rng).each do |e|
-            break if deleted_ids.count >= (count - 50)
+            break if deleted_ids.count >= (count - 30)
 
             profiles = e.resource&.meta&.profile ? e.resource&.meta&.profile : []
 
             # Only delete it if it's not somehow important
             if !references.include?(e.resource.id) &&
-               !e.resource.is_a?(FHIR::Observation) &&
-               (!e.resource.respond_to?(:code) || !e.resource&.code&.text == 'Tobacco smoking status NHIS') &&
+               !(e.resource.is_a?(FHIR::Observation) && !e.resource&.code&.text == 'Tobacco smoking status NHIS') &&
                (missing_profiles & profiles).empty?
               deleted_ids << e.resource.id
             elsif !(missing_profiles & profiles).empty?
@@ -699,6 +700,18 @@ module DataScript
     def self.get_referenced_encounters(bundle)
       bundle.entry.map do |e|
         e.resource&.encounter&.reference&.split(':')&.last if e.resource.respond_to? :encounter
+      end.compact.uniq
+    end
+
+    def self.get_referenced_reasons(bundle)
+      bundle.entry.flat_map do |e|
+        e.resource&.reasonReference&.map { |r| r.reference.split(':')&.last } if e.resource.respond_to? :reasonReference
+      end.compact.uniq
+    end
+
+    def self.get_addresses(bundle)
+      bundle.entry.flat_map do |e|
+        e.resource&.addresses&.map { |r| r.reference.split(':')&.last } if e.resource.respond_to? :addresses
       end.compact.uniq
     end
 
