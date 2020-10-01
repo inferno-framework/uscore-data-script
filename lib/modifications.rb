@@ -6,6 +6,8 @@ require 'time'
 
 module DataScript
   class Modifications
+    DESIRED_MAX = 30
+
     def self.modify!(results, random_seed = 3)
       FHIR.logger.level = :info
 
@@ -39,13 +41,9 @@ module DataScript
       missing_profiles = DataScript::Constraints::REQUIRED_PROFILES.dup
       results.each do |bundle|
         resource_counts = get_resource_counts(bundle).sort
-        # Move DocumentReferences to the front, so we delete them first (and don't have reference issues)
-        resource_counts.insert(0, resource_counts.delete(resource_counts.find { |k, _| k == 'DocumentReference' }))
-        # Move Encounters to the end, so we know which ones are safe to delete
-        resource_counts.append(resource_counts.delete(resource_counts.find { |k, _| k == 'Encounter' }))
         provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
         resource_counts.each do |type, count|
-          next unless count >= 30
+          next unless count >= DESIRED_MAX
 
           deleted_ids = []
           dr_observations = get_diagreport_referenced_observations(bundle)
@@ -55,7 +53,7 @@ module DataScript
           addresses_refs = get_addresses(bundle)
           references = (dr_observations + dr_notes + encounter_refs + reason_refs + addresses_refs).compact.uniq
           bundle.entry.find_all { |e| e.resource.resourceType == type }.shuffle(random: rng).each do |e|
-            break if deleted_ids.count >= (count - 30)
+            break if deleted_ids.count >= (count - DESIRED_MAX)
 
             profiles = e.resource&.meta&.profile ? e.resource&.meta&.profile : []
 
@@ -663,21 +661,28 @@ module DataScript
         entry
     end
 
-    def self.get_reference_type(b, reference_string)
+    def self.get_reference_type(bundle, reference_string)
+      # reference_string will be in a format like:
+      # urn:uuid:1234-abcd-1234-abcd
+      # So splitting on `:` and taking last gets us just the UUID
+      # which is also the ID of the referenced resource
       id = reference_string.split(':').last
-      b.entry.find { |e| e.resource.id == id }&.resource&.class
+      bundle.entry.find { |e| e.resource.id == id }&.resource&.class
     end
 
     def self.get_resource_counts(bundle)
-      resource_counts = {}
-      bundle.entry.each do |entry|
+      resource_counts = bundle.entry.each_with_object({}) do |entry, rc|
         resource_type = entry.resource.resourceType
-        if resource_counts[resource_type]
-          resource_counts[resource_type] += 1
+        if rc[resource_type]
+          rc[resource_type] += 1
         else
-          resource_counts[resource_type] = 1
+          rc[resource_type] = 1
         end
       end
+      # Move DocumentReferences to the front, so we delete them first (and don't have reference issues)
+      resource_counts.insert(0, resource_counts.delete(resource_counts.find { |resource_name, _| resource_name == 'DocumentReference' }))
+      # Move Encounters to the end, so we know which ones are safe to delete
+      resource_counts.append(resource_counts.delete(resource_counts.find { |resource_name, _| resource_name == 'Encounter' }))
       resource_counts
     end
 
@@ -685,7 +690,7 @@ module DataScript
       bundle.entry.flat_map do |entry|
         next unless entry.resource.is_a? FHIR::DiagnosticReport
         entry.resource.result.map { |r| r&.reference&.split(':')&.last }
-      end.uniq
+      end.uniq.compact
     end
 
     def self.get_docref_referenced_attachments(bundle)
@@ -693,6 +698,7 @@ module DataScript
       docrefs.map do |docref|
         bundle.entry.reverse.find { |e|
           e&.resource&.resourceType == 'DiagnosticReport' &&
+            e&.resource&.presentedForm&.first&.data &&
             e&.resource&.presentedForm&.first&.data == docref&.resource&.content&.first&.attachment&.data }&.resource&.id
       end.uniq
     end
