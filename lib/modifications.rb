@@ -40,7 +40,7 @@ module DataScript
       # Make sure there aren't stupid numbers of every resource type
       missing_profiles = DataScript::Constraints::REQUIRED_PROFILES.dup
       results.each do |bundle|
-        resource_counts = get_resource_counts(bundle).sort
+        resource_counts = get_resource_counts(bundle)
         provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
         resource_counts.each do |type, count|
           next unless count >= DESIRED_MAX
@@ -678,7 +678,7 @@ module DataScript
         else
           rc[resource_type] = 1
         end
-      end
+      end.sort
       # Move DocumentReferences to the front, so we delete them first (and don't have reference issues)
       resource_counts.insert(0, resource_counts.delete(resource_counts.find { |resource_name, _| resource_name == 'DocumentReference' }))
       # Move Encounters to the end, so we know which ones are safe to delete
