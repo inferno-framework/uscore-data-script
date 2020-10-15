@@ -55,7 +55,7 @@ module DataScript
           bundle.entry.find_all { |e| e.resource.resourceType == type }.shuffle(random: rng).each do |e|
             break if deleted_ids.count >= (count - DESIRED_MAX)
 
-            profiles = e.resource&.meta&.profile ? e.resource&.meta&.profile : []
+            profiles = e.resource&.meta&.profile || []
 
             # Only delete it if it's not somehow important
             if !references.include?(e.resource.id) &&
