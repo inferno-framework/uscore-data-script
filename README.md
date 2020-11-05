@@ -59,6 +59,7 @@ After selecting patients, the data script then makes the following modifications
 - Add a "discharge Disposition" to each encounter.
 - Add a "Goal" to each patient, unless one exists.
 - Loop through resource types that require multiple must-support reference types, and ensure we have at least one of each on at least one patient.
+- Loop through resource/profile types that require multiple must-support choice types, and ensure we have at least one of each on at least one patient (only for date/time choice types at the moment).
 - Remove all Claims and Explanation of Benefits.
 - Update each Patient Provenance references.
 

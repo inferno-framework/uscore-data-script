@@ -1,12 +1,15 @@
+# frozen_string_literal: true
+
 require 'base64'
 require 'securerandom'
 require_relative 'constraints'
+require_relative 'choice_type_creator'
 require 'fhir_models'
 require 'time'
 
 module DataScript
   class Modifications
-    DESIRED_MAX = 30
+    DESIRED_MAX = 20
 
     def self.modify!(results, random_seed = 3)
       FHIR.logger.level = :info
@@ -59,7 +62,7 @@ module DataScript
 
             # Only delete it if it's not somehow important
             if !references.include?(e.resource.id) &&
-               !(e.resource.is_a?(FHIR::Observation) && !e.resource&.code&.text == 'Tobacco smoking status NHIS') &&
+               !(e.resource.is_a?(FHIR::Observation) && e.resource&.code&.text == 'Tobacco smoking status NHIS') &&
                (missing_profiles & profiles).empty?
               deleted_ids << e.resource.id
             elsif !(missing_profiles & profiles).empty?
@@ -74,7 +77,7 @@ module DataScript
       # Add discharge disposition to every encounter referenced by a medicationRequest of each record
       # This is necessary (rather than just one) because of how Inferno Program has to get Encounters
       results.each do |bundle|
-        encounter_urls = bundle.entry.find_all { |e| e.resource.resourceType == 'MedicationRequest' }.map {|e| e.resource&.encounter&.reference }.compact.uniq
+        encounter_urls = bundle.entry.find_all { |e| e.resource.resourceType == 'MedicationRequest' }.map { |e| e.resource&.encounter&.reference }.compact.uniq
         encounter_urls.each do |encounter_url|
           encounter_entry = bundle.entry.find { |e| e.fullUrl == encounter_url }
           encounter = encounter_entry.resource
@@ -209,6 +212,7 @@ module DataScript
 
       # select by medication
       selection_medication = results.find {|b| DataScript::Constraints.has(b, FHIR::Medication)}
+      binding.pry
       unless selection_medication
         # if there is no free-standing Medication resource, we need to make one.
         med_bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::MedicationRequest) }
@@ -532,6 +536,8 @@ module DataScript
         end
       end
 
+      DataScript::ChoiceTypeCreator.check_choice_types(results)
+
       # DiagnosticReports need to have two performer types, so we add them here
       dr_bundle = results.find do |b|
         b.entry.any? do |e|
@@ -554,7 +560,7 @@ module DataScript
       dr_notes.concat(dr_labs).each do |dr|
         dr.performer << { reference: "urn:uuid:#{dr_practitioner}" }
         dr.performer << { reference: "urn:uuid:#{dr_organization}" }
-      end
+      end 
 
       # Add Group
       results << create_group(results)
@@ -652,13 +658,13 @@ module DataScript
     end
 
     def self.create_bundle_entry(resource)
-        entry = FHIR::Bundle::Entry.new
-        entry.fullUrl = "urn:uuid:#{resource.id}"
-        entry.resource = resource
-        entry.request = FHIR::Bundle::Entry::Request.new
-        entry.request.local_method = 'POST'
-        entry.request.url = resource.resourceType
-        entry
+      entry = FHIR::Bundle::Entry.new
+      entry.fullUrl = "urn:uuid:#{resource.id}"
+      entry.resource = resource
+      entry.request = FHIR::Bundle::Entry::Request.new
+      entry.request.local_method = 'POST'
+      entry.request.url = resource.resourceType
+      entry
     end
 
     def self.get_reference_type(bundle, reference_string)
