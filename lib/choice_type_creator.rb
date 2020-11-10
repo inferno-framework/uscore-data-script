@@ -93,7 +93,7 @@ module DataScript
           missing_attrs.each do |missing_attr|
             # If there are more than (SWAP_COUNT * the number of choices) resources of this class
             # Swap the choice type on SWAP_COUNT to the new type
-            profile_resources.select { |r| missing_attrs.none? { |a| r.send(a) } }.first(SWAP_COUNT).each do |resource|
+            profile_resources.select { |resource| missing_attrs.none? { |attribute| resource.send(attribute) } }.first(SWAP_COUNT).each do |resource|
               # Get the first non-nil attribute value
               old_attr_type, old_attr_val = all_attrs.map do |a|
                 av = resource.send(a)
