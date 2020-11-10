@@ -212,7 +212,6 @@ module DataScript
 
       # select by medication
       selection_medication = results.find {|b| DataScript::Constraints.has(b, FHIR::Medication)}
-      binding.pry
       unless selection_medication
         # if there is no free-standing Medication resource, we need to make one.
         med_bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::MedicationRequest) }
@@ -560,7 +559,7 @@ module DataScript
       dr_notes.concat(dr_labs).each do |dr|
         dr.performer << { reference: "urn:uuid:#{dr_practitioner}" }
         dr.performer << { reference: "urn:uuid:#{dr_organization}" }
-      end 
+      end
 
       # Add Group
       results << create_group(results)
