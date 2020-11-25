@@ -1,10 +1,18 @@
 require 'base64'
 require 'securerandom'
 require_relative 'constraints'
+require 'fhir_models'
+require 'time'
 
 module DataScript
   class Modifications
-    def self.modify!(results)
+    DESIRED_MAX = 30
+
+    def self.modify!(results, random_seed = 3)
+      FHIR.logger.level = :info
+
+      # Create a random number generator, to pass to things that need randomness
+      rng = Random.new(random_seed)
       # results is an Array of FHIR::Bundle objects,
       # where the first resource is a Patient.
 
@@ -29,74 +37,54 @@ module DataScript
         bundle.entry.first.resource.address.first.period.start = bundle.entry.first.resource.birthDate
       end
 
-      # Add discharge disposition to first encounter of each record
+      # Make sure there aren't stupid numbers of every resource type
+      missing_profiles = DataScript::Constraints::REQUIRED_PROFILES.dup
       results.each do |bundle|
-        encounter_entry = bundle.entry.find {|e| e.resource.resourceType == 'Encounter'}
-        encounter = encounter_entry.resource
-        encounter.hospitalization = FHIR::Encounter::Hospitalization.new
-        encounter.hospitalization.dischargeDisposition = create_codeable_concept('http://www.nubc.org/patient-discharge','01','Discharged to home care or self care (routine discharge)')
-      end
+        resource_counts = get_resource_counts(bundle)
+        provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
+        resource_counts.each do |type, count|
+          next unless count >= DESIRED_MAX
 
-      # create vitalspanel
-      panel_members = [
-        'http://hl7.org/fhir/StructureDefinition/resprate',
-        'http://hl7.org/fhir/StructureDefinition/heartrate',
-        'http://hl7.org/fhir/StructureDefinition/oxygensat',
-        'http://hl7.org/fhir/StructureDefinition/bodytemp',
-        'http://hl7.org/fhir/StructureDefinition/bodyheight',
-        'http://hl7.org/fhir/StructureDefinition/headcircum',
-        'http://hl7.org/fhir/StructureDefinition/bodyweight',
-        'http://hl7.org/fhir/StructureDefinition/bmi',
-        'http://hl7.org/fhir/StructureDefinition/bp'
-      ]
-      new_vitalspanels = 0
-      results.each do |bundle|
-        # find the provenance for this bundle
-        provenance = bundle.entry.find { |e| e.resource.resourceType == 'Provenance' }
-        # get all the encounters
-        encounters = bundle.entry.select {|e| e.resource.resourceType == 'Encounter'}
-        # get all the observations
-        observations = bundle.entry.select {|e| e.resource.resourceType == 'Observation'}
-        # add a vitalspanel to each encounter where appropriate
-        encounters.each do |entry|
-          encounter_url = entry.fullUrl
-          obs = observations.select {|e| e.resource.encounter.reference == encounter_url}
-          vitals = obs.select {|e| e.resource.meta && (e.resource.meta.profile & panel_members).any?}
-          if vitals && !vitals.empty?
-            # create a vitalspanel
-            vitalspanel = FHIR::Observation.new
-            vitalspanel.id = SecureRandom.uuid
-            vitalspanel.status = 'final'
-            vitalspanel.meta = FHIR::Meta.new
-            vitalspanel.meta.profile = [ 'http://hl7.org/fhir/StructureDefinition/vitalspanel', 'http://hl7.org/fhir/StructureDefinition/vitalsigns' ]
-            vitalspanel.category = vitals.first.resource.category
-            vitalspanel.code = create_codeable_concept('http://loinc.org','85353-1','Vital signs, weight, height, head circumference, oxygen saturation and BMI panel')
-            vitalspanel.effectiveDateTime = vitals.first.resource.effectiveDateTime
-            vitalspanel.encounter = vitals.first.resource.encounter
-            vitalspanel.issued = vitals.first.resource.issued
-            vitalspanel.subject = vitals.first.resource.subject
-            vitalspanel.hasMember = []
-            vitals.each do |member|
-              reference = FHIR::Reference.new
-              reference.reference = member.fullUrl
-              reference.display = member.resource.code.text
-              vitalspanel.hasMember << reference
+          deleted_ids = []
+          dr_observations = get_diagreport_referenced_observations(bundle)
+          dr_notes = get_docref_referenced_attachments(bundle)
+          encounter_refs = get_referenced_encounters(bundle)
+          reason_refs = get_referenced_reasons(bundle)
+          addresses_refs = get_addresses(bundle)
+          references = (dr_observations + dr_notes + encounter_refs + reason_refs + addresses_refs).compact.uniq
+          bundle.entry.find_all { |e| e.resource.resourceType == type }.shuffle(random: rng).each do |e|
+            break if deleted_ids.count >= (count - DESIRED_MAX)
+
+            profiles = e.resource&.meta&.profile || []
+
+            # Only delete it if it's not somehow important
+            if !references.include?(e.resource.id) &&
+               !(e.resource.is_a?(FHIR::Observation) && !e.resource&.code&.text == 'Tobacco smoking status NHIS') &&
+               (missing_profiles & profiles).empty?
+              deleted_ids << e.resource.id
+            elsif !(missing_profiles & profiles).empty?
+              missing_profiles -= profiles
             end
-            # create an entry
-            bundle.entry << create_bundle_entry(vitalspanel)
-            # add the new vitalspanel to the provenance resource
-            if provenance
-              provenance.resource.target << FHIR::Reference.new
-              provenance.resource.target.last.reference = "urn:uuid:#{vitalspanel.id}"
-            end
-            new_vitalspanels += 1
           end
+          bundle.entry.delete_if { |e| deleted_ids.include? e.resource.id }
+          remove_provenance_targets(deleted_ids, provenance)
         end
       end
-      puts "  - Created #{new_vitalspanels} vitalspanels"
+
+      # Add discharge disposition to every encounter referenced by a medicationRequest of each record
+      # This is necessary (rather than just one) because of how Inferno Program has to get Encounters
+      results.each do |bundle|
+        encounter_urls = bundle.entry.find_all { |e| e.resource.resourceType == 'MedicationRequest' }.map {|e| e.resource&.encounter&.reference }.compact.uniq
+        encounter_urls.each do |encounter_url|
+          encounter_entry = bundle.entry.find { |e| e.fullUrl == encounter_url }
+          encounter = encounter_entry.resource
+          encounter.hospitalization = FHIR::Encounter::Hospitalization.new
+          encounter.hospitalization.dischargeDisposition = create_codeable_concept('http://www.nubc.org/patient-discharge','01','Discharged to home care or self care (routine discharge)')
+        end
+      end
 
       # Make sure at least one organization has an NPI
-      organization_entry = results.last.entry.find {|e| e.resource.resourceType == 'Organization' }
+      organization_entry = results.last.entry.find { |e| e.resource.resourceType == 'Organization' }
       organization = organization_entry.resource
       # Add a 10 digit NPI
       organization.identifier << FHIR::Identifier.new
@@ -108,7 +96,7 @@ module DataScript
       organization.identifier.last.value = '9999999999'
 
       # Add a PractitionerRole.endpoint
-      pr_entry = results.last.entry.find {|e| e.resource.resourceType == 'PractitionerRole' }
+      pr_entry = results.last.entry.find { |e| e.resource.resourceType == 'PractitionerRole' }
       pr = pr_entry.resource
       pr.endpoint = [ FHIR::Reference.new ]
       pr.endpoint.first.reference = '#endpoint'
@@ -119,7 +107,7 @@ module DataScript
       endpoint.connectionType = create_codeable_concept('http://terminology.hl7.org/CodeSystem/endpoint-connection-type', 'direct-project', 'Direct Project').coding.first
       endpoint.payloadType = [ create_codeable_concept('http://terminology.hl7.org/CodeSystem/endpoint-payload-type', 'any', 'Any') ]
       endpoint.address = "mailto:#{pr.telecom.last.value}"
-      pr.contained = [ endpoint ]
+      pr.contained = [endpoint]
 
       # select by smoking status
       selection_smoker = results.find {|b| DataScript::Constraints.smoker(b)}
@@ -140,7 +128,7 @@ module DataScript
       end
       # select the person with the most Conditions
       selection_conditions = results.last
-      alter_condition(selection_conditions)
+      alter_condition(selection_conditions, rng)
       puts "  - Altered Condition:  #{selection_conditions.entry.first.resource.id}"
 
       # select someone with the most numerous gender
@@ -155,10 +143,10 @@ module DataScript
       selection_note = results.find {|b| DataScript::Constraints.has(b, FHIR::DocumentReference)}
       if selection_note
         # modify it to have a URL rather than base64 encoded data
-        docref = selection_note.entry.reverse.find {|e| e.resource.resourceType == 'DocumentReference' }.resource
-        report = selection_note.entry.reverse.find {|e|
-          e.resource.resourceType == 'DiagnosticReport' &&
-          e.resource.presentedForm.first.data == docref.content.first.attachment.data }.resource
+        docref = selection_note.entry.reverse.find { |e| e.resource.resourceType == 'DocumentReference' }.resource
+        report = selection_note.entry.reverse.find { |e|
+          e&.resource&.resourceType == 'DiagnosticReport' &&
+            e&.resource&.presentedForm&.first&.data == docref&.content&.first&.attachment&.data }&.resource
         url = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
         docref.content.first.attachment.contentType = 'application/pdf'
         docref.content.first.attachment.data = nil
@@ -197,11 +185,13 @@ module DataScript
       # so we need to filter them...
       docref_data = all_docref.map {|r| r.content.first.attachment.data}
       matching_report = all_report.select { |r| r.presentedForm.length >= 1 && docref_data.include?(r.presentedForm.first.data) }
+
       # need to replace the codes...
       # we will use a uniform distribution of note_types
       note_types_index = 0
       category_types_index = 0
       all_docref.zip(matching_report).each do |docref, report|
+        break if report.nil?
         docref.type = note_types[note_types_index]
         report.category = [ category_types[category_types_index] ]
         report.code = note_types[note_types_index]
@@ -221,9 +211,9 @@ module DataScript
       selection_medication = results.find {|b| DataScript::Constraints.has(b, FHIR::Medication)}
       unless selection_medication
         # if there is no free-standing Medication resource, we need to make one.
-        bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::MedicationRequest) }
-        medreq = bundle.entry.find { |e| e.resource.resourceType == 'MedicationRequest' }
-        provenance = bundle.entry.find { |e| e.resource.resourceType == 'Provenance' }
+        med_bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::MedicationRequest) }
+        medreq = med_bundle.entry.find { |e| e.resource.resourceType == 'MedicationRequest' }
+        provenance = med_bundle.entry.find { |e| e.resource.resourceType == 'Provenance' }
         # create the medication
         med = FHIR::Medication.new
         med.id = SecureRandom.uuid
@@ -236,12 +226,13 @@ module DataScript
         medreq.resource.medicationCodeableConcept = nil
         medreq.resource.medicationReference = FHIR::Reference.new
         medreq.resource.medicationReference.reference = "urn:uuid:#{med.id}"
+        medreq.resource.status = 'active'
         # add the Medication as a new Bundle entry
-        bundle.entry << create_bundle_entry(med)
+        med_bundle.entry << create_bundle_entry(med)
         # add the Medication into the provenance
         provenance.resource.target << FHIR::Reference.new
         provenance.resource.target.last.reference = "urn:uuid:#{med.id}"
-        puts "  - Altered Medication: #{bundle.entry.first.resource.id}"
+        puts "  - Altered Medication: #{med_bundle.entry.first.resource.id}"
       end
 
       # select by device
@@ -307,7 +298,7 @@ module DataScript
           pulse_ox_clone.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
           pulse_ox_clone.component.last.valueQuantity.code = '%'
           # add the Pulse Oximetry as a new Bundle entry
-          selection_device.entry << create_bundle_entry(pulse_ox_clone)
+          selection_pulse_ox.entry << create_bundle_entry(pulse_ox_clone)
           # add the Pulse Oximetry into the provenance
           provenance.resource.target << FHIR::Reference.new
           provenance.resource.target.last.reference = "urn:uuid:#{pulse_ox_clone.id}"
@@ -318,6 +309,25 @@ module DataScript
           component.dataAbsentReason = create_codeable_concept('http://terminology.hl7.org/CodeSystem/data-absent-reason', 'unknown', 'Unknown')
         end
         puts "  - Cloned Pulse Oximetry and Added Components: #{selection_pulse_ox.entry.first.resource.id}"
+      end
+
+      goal_bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::Goal) }
+      unless goal_bundle
+        goal_bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::Patient) }
+        goal = FHIR::Goal.new
+        goal.meta = FHIR::Meta.new
+        goal.meta.profile = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-goal'
+        goal.id = SecureRandom.uuid
+        goal.lifecycleStatus = 'active'
+        goal.description = create_codeable_concept('http://snomed.info/sct', '281004', 'Alcoholic dementia')
+        goal.subject = { reference: "urn:uuid:#{DataScript::Constraints.patient(goal_bundle).id}" }
+        goal_target = FHIR::Goal::Target.new
+        goal_target.dueDate = Time.now.strftime("%Y-%m-%d")
+        goal.target << goal_target
+        goal_bundle.entry << create_bundle_entry(goal)
+        goal_provenance = goal_bundle.entry.find { |e| e.resource.resourceType == 'Provenance' }
+        goal_provenance.resource.target << FHIR::Reference.new
+        goal_provenance.resource.target.last.reference = "urn:uuid:#{goal.id}"
       end
 
       # Observation Data Absent Reasons
@@ -347,18 +357,85 @@ module DataScript
         # 'http://hl7.org/fhir/StructureDefinition/bmi',
         'http://hl7.org/fhir/StructureDefinition/bp'
       ]
+
+      resources_with_multiple_mustsupport_references = {
+        FHIR::CareTeam => [
+          {
+            fhirpath: 'participant.member',
+            required_ref_types: [
+              FHIR::Patient,
+              FHIR::Practitioner,
+              FHIR::Organization
+            ],
+            base_object: FHIR::CareTeam::Participant.new.from_hash({ role: [{ coding: [{ code: '223366009', system: 'http://snomed.info/sct', display: 'Healthcare provider' }] }] })
+          },
+        ],
+        # NOTE: DiagnosticReport should be here, but because of the difficulties around the two profiles, we handle it elsewhere
+        FHIR::DocumentReference => [
+          {
+            fhirpath: 'author',
+            required_ref_types: [
+              FHIR::Patient,
+              FHIR::Practitioner,
+              FHIR::Organization
+            ],
+            base_object: nil
+          }
+        ],
+        FHIR::MedicationRequest => [
+          {
+            fhirpath: 'reportedReference',
+            required_ref_types: [
+              FHIR::Patient,
+              FHIR::Practitioner,
+              FHIR::Organization
+            ],
+            base_object: :self
+          },
+          {
+            fhirpath: 'requester',
+            required_ref_types: [
+              FHIR::Patient,
+              FHIR::Practitioner,
+              FHIR::Organization,
+              FHIR::Device
+            ],
+            base_object: :self
+          }
+        ],
+        FHIR::Provenance => [
+          {
+            fhirpath: 'agent.who',
+            required_ref_types: [
+              FHIR::Patient,
+              FHIR::Practitioner,
+              FHIR::Organization
+            ],
+            base_object: FHIR::Provenance::Agent.new.from_hash({
+              type: {
+                coding: [
+                  {
+                    code: 'author',
+                    display: 'Author',
+                    system: 'http://terminology.hl7.org/CodeSystem/provenance-participant-type'
+                  }
+                ]
+              }
+            })
+          }
+        ]
+      }
+
       puts "  - Processing Observation Data Absent Reasons"
       results.each do |bundle|
+        provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
         break if observation_profiles.empty?
         observation_profiles.delete_if do |profile_url|
           entry = bundle.entry.find {|e| e.resource.resourceType == 'Observation' && e.resource.meta&.profile&.include?(profile_url) }
           if entry
-            instance = entry.resource
+            instance = FHIR::Json.from_json(entry.resource.to_json)
+            instance.id = SecureRandom.uuid
             instance.dataAbsentReason = create_codeable_concept('http://terminology.hl7.org/CodeSystem/data-absent-reason', 'unknown', 'Unknown')
-            # if observation_profiles_valueQuantity_required.include?(profile_url)
-            #   instance.dataAbsentReason = nil
-            #   instance.valueQuantity.value = 'DATAABSENTREASONEXTENSIONGOESHERE' # Flag for primitive extension
-            # elsif
             if observation_profiles_valueCodeableConcept_required.include?(profile_url)
               instance.valueCodeableConcept = instance.dataAbsentReason
               instance.dataAbsentReason = nil
@@ -370,7 +447,11 @@ module DataScript
             else
               instance.valueQuantity = nil
             end
-            puts "    - #{profile_url}: #{entry.fullUrl}"
+            new_entry = create_bundle_entry(instance)
+            provenance.target << FHIR::Reference.new
+            provenance.target.last.reference = "urn:uuid:#{instance.id}"
+            bundle.entry << new_entry
+            puts "    - #{profile_url}: #{new_entry.fullUrl}"
             true # delete this profile url from the list
           else
             false # keep searching for this profile url in the next bundle
@@ -386,7 +467,7 @@ module DataScript
 
       # remove all resources from bundles that are not US Core profiles
       results.each do |bundle|
-        bundle.entry.delete_if {|e| ['Claim','ExplanationOfBenefit','ImagingStudy'].include?(e.resource.resourceType)}
+        bundle.entry.delete_if {|e| ['Claim','ExplanationOfBenefit','ImagingStudy','MedicationAdministration','SupplyDelivery'].include?(e.resource.resourceType)}
       end
       puts "  - Removed resources out of scope for US Core."
       # There are probably some observations remaining after this that are not US Core profiles,
@@ -399,6 +480,81 @@ module DataScript
         provenance.target.keep_if {|reference| uuids.include?(reference.reference) }
       end
       puts "  - Rewrote Provenance targets."
+
+      bundle_with_all = results.find do |b|
+        DataScript::Constraints.has(b, FHIR::Patient) &&
+          DataScript::Constraints.has(b, FHIR::Practitioner) &&
+          DataScript::Constraints.has(b, FHIR::Organization) &&
+          DataScript::Constraints.has(b, FHIR::Device) &&
+          DataScript::Constraints.has(b, FHIR::CareTeam) &&
+          DataScript::Constraints.has(b, FHIR::DiagnosticReport) &&
+          DataScript::Constraints.has(b, FHIR::DocumentReference) &&
+          DataScript::Constraints.has(b, FHIR::Provenance)
+      end
+      references = {
+        FHIR::Patient => { reference: "urn:uuid:#{bundle_with_all.entry.find { |e| e.resource.is_a? FHIR::Patient }&.resource&.id}" },
+        FHIR::Practitioner => { reference: "urn:uuid:#{bundle_with_all.entry.find { |e| e.resource.is_a? FHIR::Practitioner }&.resource&.id}" },
+        FHIR::Organization => { reference: "urn:uuid:#{bundle_with_all.entry.find { |e| e.resource.is_a? FHIR::Organization }&.resource&.id}" },
+        FHIR::Device => { reference: "urn:uuid:#{bundle_with_all.entry.find { |e| e.resource.is_a? FHIR::Device }&.resource&.id}" }
+      }
+
+      resources_with_multiple_mustsupport_references.each do |resource_class, reference_attrs|
+        resources = bundle_with_all.entry.find_all { |e| e.resource.is_a? resource_class }.map { |e| e.resource }
+        resources.each do |resource|
+          reference_attrs.each do |attrs|
+            begin
+              extant_ref_types = FHIRPath.evaluate(attrs[:fhirpath], resource&.to_hash)
+                                        .collect { |ref| get_reference_type(bundle_with_all, ref['reference']) }
+                                        .uniq
+            rescue
+              extant_ref_types = []
+            end
+            # Subtracting one array from the other will provide a list of elements
+            # in needed_ref_types that aren't in extant_ref_types
+            missing_ref_types = attrs[:required_ref_types] - extant_ref_types
+            missing_ref_types.each do |missing_type|
+              missing_reference = references[missing_type]
+              if attrs[:base_object] == :self
+                ref_obj = FHIR::Json.from_json(resource.to_json)
+                ref_obj.id = SecureRandom.uuid
+                ref_obj.send("#{attrs[:fhirpath]}=", missing_reference)
+                bundle_with_all.entry << create_bundle_entry(ref_obj)
+              elsif !attrs[:base_object].nil?
+                fhirpath_split = attrs[:fhirpath].split('.')
+                ref_obj = attrs[:base_object].class.new.from_hash(attrs[:base_object].to_hash)
+                ref_obj.send("#{fhirpath_split.last}=", missing_reference)
+                resource.send(fhirpath_split.first).push(ref_obj)
+              else
+                resource.send(attrs[:fhirpath]).push(missing_reference)
+              end
+            end
+          end
+        end
+      end
+
+      # DiagnosticReports need to have two performer types, so we add them here
+      dr_bundle = results.find do |b|
+        b.entry.any? do |e|
+          e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta.profile.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-note')
+        end &&
+          b.entry.any? do |e|
+            e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta.profile.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab')
+          end
+      end
+      dr_notes = dr_bundle.entry.find_all do |e|
+        e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta.profile.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-note')
+      end.map {|e| e.resource }
+      dr_labs = dr_bundle.entry.find_all do |e|
+        e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta.profile.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab')
+      end.map {|e| e.resource }
+      dr_practitioner = dr_bundle.entry.find { |e| e.resource.is_a? FHIR::Practitioner }.resource.id
+      dr_organization = dr_bundle.entry.find { |e| e.resource.is_a? FHIR::Organization }.resource.id
+      puts "DR Practitioner id: #{dr_practitioner}"
+      puts "DR Org ID: #{dr_organization}"
+      dr_notes.concat(dr_labs).each do |dr|
+        dr.performer << { reference: "urn:uuid:#{dr_practitioner}" }
+        dr.performer << { reference: "urn:uuid:#{dr_organization}" }
+      end
 
       # Add Group
       results << create_group(results)
@@ -435,9 +591,9 @@ module DataScript
       bundle.entry.first.resource.name = [ human_name ]
     end
 
-    def self.alter_condition(bundle)
+    def self.alter_condition(bundle, rng)
       # randomly pick one of their Conditions
-      random_condition = bundle.entry.map {|e| e.resource }.select {|r| r.resourceType == 'Condition'}.shuffle.last
+      random_condition = bundle.entry.map {|e| e.resource }.select {|r| r.resourceType == 'Condition'}.sample(random: rng)
       # and replace the category with a data-absent-reason
       unknown = FHIR::CodeableConcept.new
       unknown.extension = [ data_absent_reason ]
@@ -503,6 +659,72 @@ module DataScript
         entry.request.local_method = 'POST'
         entry.request.url = resource.resourceType
         entry
+    end
+
+    def self.get_reference_type(bundle, reference_string)
+      # reference_string will be in a format like:
+      # urn:uuid:1234-abcd-1234-abcd
+      # So splitting on `:` and taking last gets us just the UUID
+      # which is also the ID of the referenced resource
+      id = reference_string.split(':').last
+      bundle.entry.find { |e| e.resource.id == id }&.resource&.class
+    end
+
+    def self.get_resource_counts(bundle)
+      resource_counts = bundle.entry.each_with_object({}) do |entry, rc|
+        resource_type = entry.resource.resourceType
+        if rc[resource_type]
+          rc[resource_type] += 1
+        else
+          rc[resource_type] = 1
+        end
+      end.sort
+      # Move DocumentReferences to the front, so we delete them first (and don't have reference issues)
+      resource_counts.insert(0, resource_counts.delete(resource_counts.find { |resource_name, _| resource_name == 'DocumentReference' }))
+      # Move Encounters to the end, so we know which ones are safe to delete
+      resource_counts.append(resource_counts.delete(resource_counts.find { |resource_name, _| resource_name == 'Encounter' }))
+      resource_counts
+    end
+
+    def self.get_diagreport_referenced_observations(bundle)
+      bundle.entry.flat_map do |entry|
+        next unless entry.resource.is_a? FHIR::DiagnosticReport
+        entry.resource.result.map { |r| r&.reference&.split(':')&.last }
+      end.uniq.compact
+    end
+
+    def self.get_docref_referenced_attachments(bundle)
+      docrefs = bundle.entry.find_all { |e| e.resource.is_a? FHIR::DocumentReference}
+      docrefs.map do |docref|
+        bundle.entry.reverse.find { |e|
+          e&.resource&.resourceType == 'DiagnosticReport' &&
+            e&.resource&.presentedForm&.first&.data &&
+            e&.resource&.presentedForm&.first&.data == docref&.resource&.content&.first&.attachment&.data }&.resource&.id
+      end.uniq
+    end
+
+    def self.get_referenced_encounters(bundle)
+      bundle.entry.map do |e|
+        e.resource&.encounter&.reference&.split(':')&.last if e.resource.respond_to? :encounter
+      end.compact.uniq
+    end
+
+    def self.get_referenced_reasons(bundle)
+      bundle.entry.flat_map do |e|
+        e.resource&.reasonReference&.map { |r| r.reference.split(':')&.last } if e.resource.respond_to? :reasonReference
+      end.compact.uniq
+    end
+
+    def self.get_addresses(bundle)
+      bundle.entry.flat_map do |e|
+        e.resource&.addresses&.map { |r| r.reference.split(':')&.last } if e.resource.respond_to? :addresses
+      end.compact.uniq
+    end
+
+    def self.remove_provenance_targets(ids, provenance)
+      ids.each do |id|
+        provenance.target.delete_if { |target| target.id == id }
+      end
     end
   end
 end

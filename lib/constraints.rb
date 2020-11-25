@@ -63,7 +63,6 @@ module DataScript
       'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-weight-for-height',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-smokingstatus',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry',
-      'http://hl7.org/fhir/StructureDefinition/vitalspanel',
       'http://hl7.org/fhir/StructureDefinition/resprate',
       'http://hl7.org/fhir/StructureDefinition/heartrate',
       'http://hl7.org/fhir/StructureDefinition/bodytemp',

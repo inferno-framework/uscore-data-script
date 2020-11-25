@@ -51,11 +51,14 @@ and attempts to pick the minimum number of patients satisfying these criteria:
 
 After selecting patients, the data script then makes the following modifications:
 
-- Create [vitalspanel](http://hl7.org/fhir/R4/vitalspanel.html) observations where appropriate.
+- Remove excess (>30 of each resource type per patient) resources that aren't required to fulfill a needed profile.
 - If no smoker was found, make one of the patients a smoker.
 - Pick one patient, select a condition and replace the category with [data absent reason unknown](http://hl7.org/fhir/us/core/STU3.1/general-guidance.html#missing-data).
 - Pick one patient, select the patient name, and replace name data with [data absent reason unknown](http://hl7.org/fhir/us/core/STU3.1/general-guidance.html#missing-data).
 - If no stand-alone Medication was found (i.e. all the medications were RxNorm codes) then pick a patient, and modify a MedicationRequest to have a reference to a stand-alone Medication.
+- Add a "discharge Disposition" to each encounter.
+- Add a "Goal" to each patient, unless one exists.
+- Loop through resource types that require multiple must-support reference types, and ensure we have at least one of each on at least one patient.
 - Remove all Claims and Explanation of Benefits.
 - Update each Patient Provenance references.
 
