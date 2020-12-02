@@ -76,12 +76,11 @@ module DataScript
         allergy_intoleranace_resource = bundle.entry.find { |e| e.resource.is_a? FHIR::AllergyIntolerance }&.resource
         next if allergy_intoleranace_resource.nil?
 
-        reaction = FHIR::BackboneElement.new
+        reaction = FHIR::AllergyIntolerance::Reaction.new
         manifestation = create_codeable_concept('http://hl7.org/fhir/ValueSet/clinical-findings', '109006', 'Anxiety disorder of childhood OR adolescence')
-        reaction.instance_variable_set(:@manifestation, manifestation)
-        allergy_intoleranace_resource.reaction = [reaction]
+        reaction.manifestation << manifestation
+        allergy_intoleranace_resource.reaction << reaction
       end
-
 
       # Add discharge disposition to every encounter referenced by a medicationRequest of each record
       # This is necessary (rather than just one) because of how Inferno Program has to get Encounters
