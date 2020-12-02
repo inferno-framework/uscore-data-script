@@ -72,14 +72,16 @@ module DataScript
       end
 
       # add reaction.manifestation to allergy intolerance result because of must support changes in 3.1.1
-      already_contains_reaction_manifestation = false
-      results.each do |bundle|
-        allergy_intoleranace_resources = bundle.entry.select { |e| e.resource.is_a? FHIR::AllergyIntolerance }.map(&:resource)
-        already_contains_reaction_manifestation = allergy_intoleranace_resources.any? do |resource|
-          resource.reaction.any? { |reaction| reaction.manifestation.any? }
+      already_contains_reaction_manifestation =
+        results.any? do |bundle|
+          bundle
+            .entry
+            .select { |e| e.resource.is_a? FHIR::AllergyIntolerance }
+            .map(&:resource)
+            .any? do |resource|
+              resource.reaction.any? { |reaction| reaction.manifestation.any? }
+            end
         end
-        break if already_contains_reaction_manifestation
-      end
       unless already_contains_reaction_manifestation
         results.each do |bundle|
           allergy_intoleranace_resource = bundle.entry.find { |e| e.resource.is_a? FHIR::AllergyIntolerance }&.resource
