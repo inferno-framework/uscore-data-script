@@ -71,6 +71,18 @@ module DataScript
         end
       end
 
+      # add reaction.manifestation to allergy intolerance result because of must support changes in 3.1.1
+      results.each do |bundle|
+        allergy_intoleranace_resource = bundle.entry.find { |e| e.resource.is_a? FHIR::AllergyIntolerance }&.resource
+        next if allergy_intoleranace_resource.nil?
+
+        reaction = FHIR::BackboneElement.new
+        manifestation = create_codeable_concept('http://hl7.org/fhir/ValueSet/clinical-findings', '109006', 'Anxiety disorder of childhood OR adolescence')
+        reaction.instance_variable_set(:@manifestation, manifestation)
+        allergy_intoleranace_resource.reaction = [reaction]
+      end
+
+
       # Add discharge disposition to every encounter referenced by a medicationRequest of each record
       # This is necessary (rather than just one) because of how Inferno Program has to get Encounters
       results.each do |bundle|
@@ -608,6 +620,7 @@ module DataScript
     end
 
     def self.alter_smoking_status(bundle)
+      return 
       last_smoking_observation = bundle.entry.select {|e| e.resource.resourceType == 'Observation' && e.resource.code.text == 'Tobacco smoking status NHIS' }.last.resource
       coding = FHIR::Coding.new
       coding.system = 'http://snomed.info/sct'
