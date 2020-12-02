@@ -619,7 +619,6 @@ module DataScript
     end
 
     def self.alter_smoking_status(bundle)
-      return 
       last_smoking_observation = bundle.entry.select {|e| e.resource.resourceType == 'Observation' && e.resource.code.text == 'Tobacco smoking status NHIS' }.last.resource
       coding = FHIR::Coding.new
       coding.system = 'http://snomed.info/sct'
