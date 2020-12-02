@@ -286,9 +286,9 @@ module DataScript
           pulse_ox_clone.component.last.code = create_codeable_concept('http://loinc.org','3151-8', 'Inhaled oxygen flow rate')
           pulse_ox_clone.component.last.valueQuantity = FHIR::Quantity.new
           pulse_ox_clone.component.last.valueQuantity.value = 6
-          pulse_ox_clone.component.last.valueQuantity.unit = 'l/min'
+          pulse_ox_clone.component.last.valueQuantity.unit = 'L/min'
           pulse_ox_clone.component.last.valueQuantity.system = 'http://unitsofmeasure.org'
-          pulse_ox_clone.component.last.valueQuantity.code = 'l/min'
+          pulse_ox_clone.component.last.valueQuantity.code = 'L/min'
           # Second component is concentration
           pulse_ox_clone.component << FHIR::Observation::Component.new
           pulse_ox_clone.component.last.code = create_codeable_concept('http://loinc.org','3150-0', 'Inhaled oxygen concentration')
