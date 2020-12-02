@@ -73,13 +73,20 @@ module DataScript
 
       # add reaction.manifestation to allergy intolerance result because of must support changes in 3.1.1
       results.each do |bundle|
-        allergy_intoleranace_resource = bundle.entry.find { |e| e.resource.is_a? FHIR::AllergyIntolerance }&.resource
-        next if allergy_intoleranace_resource.nil?
+        allergy_intoleranace_resources = bundle.entry.select { |e| e.resource.is_a? FHIR::AllergyIntolerance }.map(&:resource)
+        next if allergy_intoleranace_resources.empty?
+
+        # Don't do anything if reaction.manifestation is found in any resource
+        already_contains_reaction_manifestation = allergy_intoleranace_resources.any? do |resource|
+          resource.reaction.any? { |reaction| reaction.manifestation.any? }
+        end
+        break if already_contains_reaction_manifestation
 
         reaction = FHIR::AllergyIntolerance::Reaction.new
         manifestation = create_codeable_concept('http://snomed.info/sct', '271807003', 'skin rash')
         reaction.manifestation << manifestation
-        allergy_intoleranace_resource.reaction << reaction
+        allergy_intoleranace_resources.first.reaction << reaction
+        break
       end
 
       # Add discharge disposition to every encounter referenced by a medicationRequest of each record
