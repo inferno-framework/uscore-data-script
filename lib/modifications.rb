@@ -71,6 +71,31 @@ module DataScript
         end
       end
 
+      # add reaction.manifestation to allergy intolerance result because of must support changes in 3.1.1
+      already_contains_reaction_manifestation =
+        results.any? do |bundle|
+          bundle
+            .entry
+            .select { |e| e.resource.is_a? FHIR::AllergyIntolerance }
+            .map(&:resource)
+            .any? do |resource|
+              resource.reaction.any? { |reaction| reaction.manifestation.any? }
+            end
+        end
+      unless already_contains_reaction_manifestation
+        results.each do |bundle|
+          allergy_intoleranace_resource = bundle.entry.find { |e| e.resource.is_a? FHIR::AllergyIntolerance }&.resource
+          next if allergy_intoleranace_resource.nil?
+
+          reaction = FHIR::AllergyIntolerance::Reaction.new
+          manifestation = create_codeable_concept('http://snomed.info/sct', '271807003', 'skin rash')
+          reaction.manifestation << manifestation
+          allergy_intoleranace_resource.reaction << reaction
+          puts "  - Altered AllergyIntolerance: #{allergy_intoleranace_resource.id}"
+          break
+        end
+      end
+
       # Add discharge disposition to every encounter referenced by a medicationRequest of each record
       # This is necessary (rather than just one) because of how Inferno Program has to get Encounters
       results.each do |bundle|
