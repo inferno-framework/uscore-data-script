@@ -77,7 +77,7 @@ module DataScript
         next if allergy_intoleranace_resource.nil?
 
         reaction = FHIR::AllergyIntolerance::Reaction.new
-        manifestation = create_codeable_concept('http://hl7.org/fhir/ValueSet/clinical-findings', '109006', 'Anxiety disorder of childhood OR adolescence')
+        manifestation = create_codeable_concept('http://snomed.info/sct', '271807003', 'skin rash')
         reaction.manifestation << manifestation
         allergy_intoleranace_resource.reaction << reaction
       end
