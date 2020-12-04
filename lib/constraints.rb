@@ -63,11 +63,11 @@ module DataScript
       'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-weight-for-height',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-smokingstatus',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry',
+      'http://hl7.org/fhir/us/core/StructureDefinition/head-occipital-frontal-circumference-percentile',
       'http://hl7.org/fhir/StructureDefinition/resprate',
       'http://hl7.org/fhir/StructureDefinition/heartrate',
       'http://hl7.org/fhir/StructureDefinition/bodytemp',
       'http://hl7.org/fhir/StructureDefinition/bodyheight',
-      'http://hl7.org/fhir/StructureDefinition/headcircum',
       'http://hl7.org/fhir/StructureDefinition/bodyweight',
       'http://hl7.org/fhir/StructureDefinition/bmi',
       'http://hl7.org/fhir/StructureDefinition/bp'
@@ -143,6 +143,14 @@ module DataScript
     def self.has_pulse_ox(bundle)
       bundle.entry.any? do |entry|
         entry.resource&.meta&.profile&.include? 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry'
+      end
+    end
+
+    def self.has_headcircum(results)
+      results.any? do |bundle|
+        bundle.entry.any? do |entry|
+          entry.resource&.meta&.profile&.include? 'http://hl7.org/fhir/us/core/StructureDefinition/head-occipital-frontal-circumference-percentile'
+        end
       end
     end
   end

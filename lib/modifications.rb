@@ -358,12 +358,6 @@ module DataScript
         goal_provenance.resource.target.last.reference = "urn:uuid:#{goal.id}"
       end
 
-      # Observation Data Absent Reasons
-      # observation_profiles_valueQuantity_required = [
-      #   'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-bmi-for-age',
-      #   'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-weight-for-height',
-      #   'http://hl7.org/fhir/StructureDefinition/bmi',
-      # ]
       observation_profiles_valueCodeableConcept_required = [
         'http://hl7.org/fhir/us/core/StructureDefinition/us-core-smokingstatus'
       ]
@@ -372,17 +366,14 @@ module DataScript
       ]
       observation_profiles = [
         'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab',
-        # 'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-bmi-for-age',
-        # 'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-weight-for-height',
         'http://hl7.org/fhir/us/core/StructureDefinition/us-core-smokingstatus',
         'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry',
+        'http://hl7.org/fhir/us/core/StructureDefinition/head-occipital-frontal-circumference-percentile',
         'http://hl7.org/fhir/StructureDefinition/resprate',
         'http://hl7.org/fhir/StructureDefinition/heartrate',
         'http://hl7.org/fhir/StructureDefinition/bodytemp',
         'http://hl7.org/fhir/StructureDefinition/bodyheight',
-        'http://hl7.org/fhir/StructureDefinition/headcircum',
         'http://hl7.org/fhir/StructureDefinition/bodyweight',
-        # 'http://hl7.org/fhir/StructureDefinition/bmi',
         'http://hl7.org/fhir/StructureDefinition/bp'
       ]
 
@@ -453,6 +444,54 @@ module DataScript
           }
         ]
       }
+
+      # Add missing Head Circumference Percent resource
+      unless DataScript::Constraints.has_headcircum(results)
+        headcircum_resource = FHIR::Observation.new({
+          id: SecureRandom.uuid,
+          meta: {
+            profile: [
+              'http://hl7.org/fhir/StructureDefinition/vitalsigns',
+              'http://hl7.org/fhir/us/core/StructureDefinition/head-occipital-frontal-circumference-percentile'
+            ]
+          },
+          category: [
+            {
+              coding: [
+                {
+                  code: 'vital-signs',
+                  system: 'http://terminology.hl7.org/CodeSystem/observation-category',
+                  display: 'Vital Signs'
+                }
+              ]
+            }
+          ],
+          code: {
+            coding: [
+              {
+                code: '8289-1',
+                system: 'http://loinc.org',
+                display: 'Head Occipital-frontal circumference Percentile'
+              }
+            ]
+          },
+          subject: {
+            reference: "urn:uuid:#{DataScript::Constraints.patient(results.first).id}"
+          },
+          status: 'final',
+          effectiveDateTime: (DateTime.strptime(DataScript::Constraints.patient(results.first).birthDate, '%Y-%m-%d') + 30).iso8601,
+          valueQuantity: {
+            value: 23,
+            unit: '%',
+            system: 'http://unitsofmeasure.org',
+            code: '%'
+          }
+        })
+        results.first.entry.push create_bundle_entry(headcircum_resource)
+        provenance = results.first.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
+        provenance.target << FHIR::Reference.new
+        provenance.target.last.reference = "urn:uuid:#{headcircum_resource.id}"
+      end
 
       puts "  - Processing Observation Data Absent Reasons"
       results.each do |bundle|

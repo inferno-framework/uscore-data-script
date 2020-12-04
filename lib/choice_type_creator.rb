@@ -35,7 +35,6 @@ module DataScript
         profiles: [
           'http://hl7.org/fhir/StructureDefinition/resprate',
           'http://hl7.org/fhir/StructureDefinition/heartrate',
-          'http://hl7.org/fhir/StructureDefinition/headcircum',
           'http://hl7.org/fhir/StructureDefinition/bodyweight',
           'http://hl7.org/fhir/StructureDefinition/bp',
           'http://hl7.org/fhir/us/core/StructureDefinition/us-core-smokingstatus',
@@ -43,6 +42,7 @@ module DataScript
           'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab',
           'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-bmi-for-age',
           'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry',
+          'http://hl7.org/fhir/us/core/StructureDefinition/head-occipital-frontal-circumference-percentile',
           'http://hl7.org/fhir/StructureDefinition/bodyheight',
           'http://hl7.org/fhir/StructureDefinition/bodytemp'
         ]
