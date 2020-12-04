@@ -264,6 +264,19 @@ module DataScript
         puts "  - Altered Medication: #{med_bundle.entry.first.resource.id}"
       end
 
+      # change one medication request from an order to a self prescription, if needed
+      # we need at least two intents in order to demonstrate the multi-or search requirement for intent
+      any_non_order = results.any? {|b| b.entry.any?{|e| e.resource.resourceType == 'MedicationRequest' && e.resource.intent != 'order' }}
+      selection_medication_request = results.find {|b| DataScript::Constraints.has(b, FHIR::MedicationRequest)}
+      if !any_non_order && selection_medication_request
+        changed_medication = selection_medication_request.entry.select { |e| e.resource.resourceType == 'MedicationRequest'}.last.resource
+        changed_medication.intent = 'plan'
+        changed_medication.reportedBoolean = true
+        changed_medication.requester = changed_medication.subject.clone
+        changed_medication.encounter = nil
+        puts "  - Altered Medication Request to have 'plan' intent: #{changed_medication.id}"
+      end
+
       # select by device
       selection_device = results.find {|b| DataScript::Constraints.has(b, FHIR::Device)}
       if selection_device
