@@ -54,7 +54,8 @@ module DataScript
           encounter_refs = get_referenced_encounters(bundle)
           reason_refs = get_referenced_reasons(bundle)
           addresses_refs = get_addresses(bundle)
-          references = (dr_observations + dr_notes + encounter_refs + reason_refs + addresses_refs).compact.uniq
+          medication_refs = get_medreqs_with_med_references(bundle)
+          references = (dr_observations + dr_notes + encounter_refs + reason_refs + addresses_refs + medication_refs).compact.uniq
           bundle.entry.find_all { |e| e.resource.resourceType == type }.shuffle(random: rng).each do |e|
             break if deleted_ids.count >= (count - DESIRED_MAX)
 
@@ -787,6 +788,14 @@ module DataScript
     def self.get_addresses(bundle)
       bundle.entry.flat_map do |e|
         e.resource&.addresses&.map { |r| r.reference.split(':')&.last } if e.resource.respond_to? :addresses
+      end.compact.uniq
+    end
+
+    def self.get_medreqs_with_med_references(bundle)
+      bundle.entry.select { |e| e.resource.is_a? FHIR::MedicationRequest }.flat_map do |e|
+        if e.resource&.medicationReference
+          [e.resource.id, e&.resource&.medicationReference&.reference&.split(':')&.last]
+        end
       end.compact.uniq
     end
 
