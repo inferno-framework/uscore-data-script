@@ -272,6 +272,7 @@ module DataScript
         changed_medication = selection_medication_request.entry.select { |e| e.resource.resourceType == 'MedicationRequest'}.last.resource
         changed_medication.intent = 'plan'
         changed_medication.reportedBoolean = true
+        changed_medication.reportedReference = nil
         changed_medication.requester = changed_medication.subject.clone
         changed_medication.encounter = nil
         puts "  - Altered Medication Request to have 'plan' intent: #{changed_medication.id}"
