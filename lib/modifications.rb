@@ -345,7 +345,7 @@ module DataScript
         goal_bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::Patient) }
         goal = FHIR::Goal.new
         goal.meta = FHIR::Meta.new
-        goal.meta.profile = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-goal'
+        goal.meta.profile = ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-goal']
         goal.id = SecureRandom.uuid
         goal.lifecycleStatus = 'active'
         goal.description = create_codeable_concept('http://snomed.info/sct', '281004', 'Alcoholic dementia')
