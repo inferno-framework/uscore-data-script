@@ -392,74 +392,6 @@ module DataScript
         'http://hl7.org/fhir/StructureDefinition/bp'
       ]
 
-      resources_with_multiple_mustsupport_references = {
-        FHIR::CareTeam => [
-          {
-            fhirpath: 'participant.member',
-            required_ref_types: [
-              FHIR::Patient,
-              FHIR::Practitioner,
-              FHIR::Organization
-            ],
-            base_object: FHIR::CareTeam::Participant.new.from_hash({ role: [{ coding: [{ code: '223366009', system: 'http://snomed.info/sct', display: 'Healthcare provider' }] }] })
-          },
-        ],
-        # NOTE: DiagnosticReport should be here, but because of the difficulties around the two profiles, we handle it elsewhere
-        FHIR::DocumentReference => [
-          {
-            fhirpath: 'author',
-            required_ref_types: [
-              FHIR::Patient,
-              FHIR::Practitioner,
-              FHIR::Organization
-            ],
-            base_object: nil
-          }
-        ],
-        FHIR::MedicationRequest => [
-          {
-            fhirpath: 'reportedReference',
-            required_ref_types: [
-              FHIR::Patient,
-              FHIR::Practitioner,
-              FHIR::Organization
-            ],
-            base_object: :self
-          },
-          {
-            fhirpath: 'requester',
-            required_ref_types: [
-              FHIR::Patient,
-              FHIR::Practitioner,
-              FHIR::Organization,
-              FHIR::Device
-            ],
-            base_object: :self
-          }
-        ],
-        FHIR::Provenance => [
-          {
-            fhirpath: 'agent.who',
-            required_ref_types: [
-              FHIR::Patient,
-              FHIR::Practitioner,
-              FHIR::Organization
-            ],
-            base_object: FHIR::Provenance::Agent.new.from_hash({
-              type: {
-                coding: [
-                  {
-                    code: 'author',
-                    display: 'Author',
-                    system: 'http://terminology.hl7.org/CodeSystem/provenance-participant-type'
-                  }
-                ]
-              }
-            })
-          }
-        ]
-      }
-
       # Add missing Head Circumference Percent resource
       unless DataScript::Constraints.has_headcircum(results)
         headcircum_resource = FHIR::Observation.new({
@@ -562,57 +494,6 @@ module DataScript
         provenance.target.keep_if {|reference| uuids.include?(reference.reference) }
       end
       puts "  - Rewrote Provenance targets."
-
-      bundle_with_all = results.find do |b|
-        DataScript::Constraints.has(b, FHIR::Patient) &&
-          DataScript::Constraints.has(b, FHIR::Practitioner) &&
-          DataScript::Constraints.has(b, FHIR::Organization) &&
-          DataScript::Constraints.has(b, FHIR::Device) &&
-          DataScript::Constraints.has(b, FHIR::CareTeam) &&
-          DataScript::Constraints.has(b, FHIR::DiagnosticReport) &&
-          DataScript::Constraints.has(b, FHIR::DocumentReference) &&
-          DataScript::Constraints.has(b, FHIR::Provenance)
-      end
-      references = {
-        FHIR::Patient => { reference: "urn:uuid:#{bundle_with_all.entry.find { |e| e.resource.is_a? FHIR::Patient }&.resource&.id}" },
-        FHIR::Practitioner => { reference: "urn:uuid:#{bundle_with_all.entry.find { |e| e.resource.is_a? FHIR::Practitioner }&.resource&.id}" },
-        FHIR::Organization => { reference: "urn:uuid:#{bundle_with_all.entry.find { |e| e.resource.is_a? FHIR::Organization }&.resource&.id}" },
-        FHIR::Device => { reference: "urn:uuid:#{bundle_with_all.entry.find { |e| e.resource.is_a? FHIR::Device }&.resource&.id}" }
-      }
-
-      resources_with_multiple_mustsupport_references.each do |resource_class, reference_attrs|
-        resources = bundle_with_all.entry.find_all { |e| e.resource.is_a? resource_class }.map { |e| e.resource }
-        resources.each do |resource|
-          reference_attrs.each do |attrs|
-            begin
-              extant_ref_types = FHIRPath.evaluate(attrs[:fhirpath], resource&.to_hash)
-                                        .collect { |ref| get_reference_type(bundle_with_all, ref['reference']) }
-                                        .uniq
-            rescue
-              extant_ref_types = []
-            end
-            # Subtracting one array from the other will provide a list of elements
-            # in needed_ref_types that aren't in extant_ref_types
-            missing_ref_types = attrs[:required_ref_types] - extant_ref_types
-            missing_ref_types.each do |missing_type|
-              missing_reference = references[missing_type]
-              if attrs[:base_object] == :self
-                ref_obj = FHIR::Json.from_json(resource.to_json)
-                ref_obj.id = SecureRandom.uuid
-                ref_obj.send("#{attrs[:fhirpath]}=", missing_reference)
-                bundle_with_all.entry << create_bundle_entry(ref_obj)
-              elsif !attrs[:base_object].nil?
-                fhirpath_split = attrs[:fhirpath].split('.')
-                ref_obj = attrs[:base_object].class.new.from_hash(attrs[:base_object].to_hash)
-                ref_obj.send("#{fhirpath_split.last}=", missing_reference)
-                resource.send(fhirpath_split.first).push(ref_obj)
-              else
-                resource.send(attrs[:fhirpath]).push(missing_reference)
-              end
-            end
-          end
-        end
-      end
 
       DataScript::ChoiceTypeCreator.check_choice_types(results)
 
