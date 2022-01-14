@@ -47,6 +47,7 @@ module DataScript
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-documentreference',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-encounter',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-goal',
+      'https://hl7.org/fhir/activitydefinition.html',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-immunization',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-implantable-device',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab',
