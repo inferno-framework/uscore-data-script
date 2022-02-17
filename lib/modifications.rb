@@ -373,7 +373,7 @@ module DataScript
         goal_provenance.resource.target.last.reference = "urn:uuid:#{goal.id}"
       end
 
-
+=begin
       activitydefinition_bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::Activitydefinition) }
       unless activitydefinition_bundle
         activitydefintion_bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::Patient) }
@@ -381,8 +381,8 @@ module DataScript
         activitydefinition.meta = FHIR::Meta.new
         activitydefinition.meta.profile = ['https://hl7.org/fhir/activitydefinition.html']
         activitydefinition.id = SecureRandom.uuid
-        activitydefinition.lifecycleStatus = 'active'
-        goal.description = create_codeable_concept('http://snomed.info/sct', '281004', 'Alcoholic dementia')
+        activitydefinition.status = 'active'
+        activitydefinition.description = "controlling hypertension"
         goal.subject = { reference: "urn:uuid:#{DataScript::Constraints.patient(goal_bundle).id}" }
         goal_target = FHIR::Goal::Target.new
         goal_target.dueDate = Time.now.strftime("%Y-%m-%d")
@@ -392,6 +392,7 @@ module DataScript
         goal_provenance.resource.target << FHIR::Reference.new
         goal_provenance.resource.target.last.reference = "urn:uuid:#{goal.id}"
       end
+=end
 
 
 
