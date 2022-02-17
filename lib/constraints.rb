@@ -16,7 +16,9 @@ module DataScript
       'one_white' => lambda {|results| results.any? {|bundle| race(bundle) == 'White'}},
       'one_black' => lambda {|results| results.any? {|bundle| race(bundle) == 'Black or African American'}},
       'one_hispanic' => lambda {|results| results.any? {|bundle| ethnicity(bundle) == 'Hispanic or Latino'}},
-      'one_smoker' => lambda {|results| results.any? {|bundle| smoker(bundle) }}
+      'one_smoker' => lambda {|results| results.any? {|bundle| smoker(bundle) }},
+      'one_hypertension_condition' => lambda {|results| results.any? {|bundle| hypertension_condition(bundle) && observation_diastolic(bundle)}},
+      'one_hypertension_observation_high' => lambda {|results| results.any? {|bundle| hypertension_observation_high(bundle)}},
     }
 
     CONSTRAINTS_MRBURNS = {
@@ -35,6 +37,8 @@ module DataScript
       'one_black',
       'one_hispanic',
       'one_smoker',
+      'one_hypertension_condition',
+      'one_hypertension_observation_high'
     ]
 
     REQUIRED_PROFILES = [
@@ -47,6 +51,7 @@ module DataScript
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-documentreference',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-encounter',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-goal',
+      'https://hl7.org/fhir/activitydefinition.html',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-immunization',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-implantable-device',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab',
@@ -136,6 +141,31 @@ module DataScript
       smoking_statuses.map {|status| status.value.text}.include? 'Current every day smoker'
     end
 
+
+    def self.hypertension_condition(bundle)
+      entries = bundle.entry.select {|entry| entry.resource.is_a?(FHIR::Condition)}
+      conditions = entries.map {|entry| entry.resource}
+      conditions.map {|condition| condition.code.text}.include? 'Hypertension'
+    end
+
+
+    def self.observation_diastolic(bundle)
+      entries = bundle.entry.select {|entry| entry.resource.is_a?(FHIR::Observation)}
+      observations = entries.map {|entry| entry.resource}
+      observations.map {|observation| observation&.component&.at(0)&.code&.text.to_s}.include? 'Diastolic Blood Pressure' 
+    end
+
+    
+    #   90 <= Diastolic <= 100
+    def self.hypertension_observation_high(bundle)
+      entries = bundle.entry.select {|entry| entry.resource.is_a?(FHIR::Observation)}
+      observations = entries.map {|entry| entry.resource}
+      hypertension_observation_statuses = observations.select {|observation| observation&.component&.at(0)&.code&.text == 'Diastolic Blood Pressure'}
+      hypertension_observation_statuses.map {|observation| (observation&.component&.at(0)&.valueQuantity&.value.to_i>=90 && observation&.component&.at(0)&.valueQuantity&.value.to_i<=100) }
+    end
+
+
+    
     def self.has(bundle, fhir_class)
       bundle.entry.any? {|entry| entry.resource.is_a?(fhir_class)}
     end

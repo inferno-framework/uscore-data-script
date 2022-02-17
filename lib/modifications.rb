@@ -373,6 +373,29 @@ module DataScript
         goal_provenance.resource.target.last.reference = "urn:uuid:#{goal.id}"
       end
 
+=begin
+      activitydefinition_bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::Activitydefinition) }
+      unless activitydefinition_bundle
+        activitydefintion_bundle = results.find { |b| DataScript::Constraints.has(b, FHIR::Patient) }
+        activitydefinition = FHIR::Activitydefinition.new
+        activitydefinition.meta = FHIR::Meta.new
+        activitydefinition.meta.profile = ['https://hl7.org/fhir/activitydefinition.html']
+        activitydefinition.id = SecureRandom.uuid
+        activitydefinition.status = 'active'
+        activitydefinition.description = "controlling hypertension"
+        goal.subject = { reference: "urn:uuid:#{DataScript::Constraints.patient(goal_bundle).id}" }
+        goal_target = FHIR::Goal::Target.new
+        goal_target.dueDate = Time.now.strftime("%Y-%m-%d")
+        goal.target << goal_target
+        goal_bundle.entry << create_bundle_entry(goal)
+        goal_provenance = goal_bundle.entry.find { |e| e.resource.resourceType == 'Provenance' }
+        goal_provenance.resource.target << FHIR::Reference.new
+        goal_provenance.resource.target.last.reference = "urn:uuid:#{goal.id}"
+      end
+=end
+
+
+
       observation_profiles_valueCodeableConcept_required = [
         'http://hl7.org/fhir/us/core/StructureDefinition/us-core-smokingstatus'
       ]
