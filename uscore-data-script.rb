@@ -220,7 +220,7 @@ if patient_bundle_absent_name
   # run FHIR validator on output
   puts 'Running FHIR validator on output.'
   validation_file = "#{output_validation}/#{patient_bundle_absent_name.entry.first.resource.id}.txt"
-  system( "java -jar lib/org.hl7.fhir.validator.jar #{filename} -version 4.0.1 -ig hl7.fhir.us.core#3.1.0 > #{validation_file}" )
+  system( "java -jar lib/validator_cli.jar #{filename} -version 4.0.1 -ig hl7.fhir.us.core#3.1.1 > #{validation_file}" )
 end
 
 tok = Time.now.to_i
@@ -278,14 +278,14 @@ selections.each do |bundle|
   # run FHIR validator on output
   filename = "#{output_data}/#{id}.json"
   validation_file = "#{output_validation}/#{id}.txt"
-  system( "java -jar lib/org.hl7.fhir.validator.jar #{filename} -version 4.0.1 -ig hl7.fhir.us.core > #{validation_file}" )
+  system( "java -jar lib/validator_cli.jar #{filename} -version 4.0.1 -ig hl7.fhir.us.core#3.1.1 > #{validation_file}" )
 end
 
 if patient_bundle_absent_name
   filename = "#{output_data}/#{patient_bundle_absent_name.entry.first.resource.id}.json"
   # run FHIR validator on output
   validation_file = "#{output_validation}/#{patient_bundle_absent_name.entry.first.resource.id}.txt"
-  system( "java -jar lib/org.hl7.fhir.validator.jar #{filename} -version 4.0.1 -ig hl7.fhir.us.core > #{validation_file}" )
+  system( "java -jar lib/validator_cli.jar #{filename} -version 4.0.1 -ig hl7.fhir.us.core#3.1.1 > #{validation_file}" )
 end
 tok = Time.now.to_i
 puts "  Validated #{selections.length + (patient_bundle_absent_name ? 1 : 0)} files (#{DataScript::TimeUtilities.pretty(tok - tik)})."

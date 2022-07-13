@@ -12,6 +12,7 @@ This uscore-data-script requires working installations of Ruby and Java. After c
 ```
 cd <path>/uscore-data-script
 bundle install
+get_validator.sh
 ```
 
 ## Creating the Data Set
