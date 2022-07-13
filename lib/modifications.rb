@@ -63,7 +63,7 @@ module DataScript
 
             # Only delete it if it's not somehow important
             if !references.include?(e.resource.id) &&
-               !(e.resource.is_a?(FHIR::Observation) && e.resource&.code&.text == 'Tobacco smoking status NHIS') &&
+               !(e.resource.is_a?(FHIR::Observation) && e.resource&.code&.text.start_with?('Tobacco smoking status')) &&
                (missing_profiles & profiles).empty?
               deleted_ids << e.resource.id
             elsif !(missing_profiles & profiles).empty?

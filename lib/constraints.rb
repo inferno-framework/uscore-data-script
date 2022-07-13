@@ -132,8 +132,10 @@ module DataScript
     def self.smoker(bundle)
       entries = bundle.entry.select {|entry| entry.resource.is_a?(FHIR::Observation)}
       observations = entries.map {|entry| entry.resource}
-      smoking_statuses = observations.select {|observation| observation.code.text == 'Tobacco smoking status NHIS'}
-      smoking_statuses.map {|status| status.value.text}.include? 'Current every day smoker'
+      smoking_statuses = observations.select {|observation| observation.code.text&.start_with?('Tobacco smoking status')}
+      altA = smoking_statuses.map {|status| status.value.text}.include? 'Current every day smoker'
+      altB = smoking_statuses.map {|status| status.value.text}.include? 'Smokes tobacco daily (finding)'
+      (altA || altB)
     end
 
     def self.has(bundle, fhir_class)
