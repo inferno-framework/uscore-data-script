@@ -3,7 +3,7 @@
 require 'base64'
 require 'securerandom'
 require_relative 'constraints'
-require_relative 'choice_type_creator'
+require_relative '../choice_type_creator'
 require 'fhir_models'
 require 'time'
 
@@ -460,6 +460,8 @@ module DataScript
               end
             else
               instance.valueQuantity = nil
+              instance.valueCodeableConcept = nil
+              instance.valueString = nil
             end
             new_entry = create_bundle_entry(instance)
             provenance.target << FHIR::Reference.new
