@@ -17,6 +17,8 @@ if ARGV && ARGV.length >= 1
   elsif ARGV.include?('v4')
     puts 'Using US Core version 4...'
     VERSION = 4
+    require './lib/v4/constraints.rb'
+    require './lib/v4/modifications.rb'
   elsif ARGV.include?('v5')
     puts 'Using US Core version 5...'
     VERSION = 5
@@ -25,10 +27,14 @@ if ARGV && ARGV.length >= 1
   else
     puts 'Using US Core version 4...'
     VERSION = 4
+    require './lib/v4/constraints.rb'
+    require './lib/v4/modifications.rb'
   end
 else
   puts 'Using US Core version 4...'
   VERSION = 4
+  require './lib/v4/constraints.rb'
+  require './lib/v4/modifications.rb'
 end
 
 if ARGV && ARGV.length >= 1 && ARGV.include?('mrburns')
@@ -41,6 +47,12 @@ if ARGV && ARGV.length >= 1 && ARGV.include?('mrburns')
   DataScript::Constraints::REQUIRED_PROFILES.delete('http://hl7.org/fhir/us/core/StructureDefinition/us-core-medication')
 else
   MRBURNS = false
+end
+
+def validate(filename, validation_file)
+  uscore_ver = '3.1.1'
+  uscore_ver = '4.0.0' if VERSION == 4
+  system( "java -jar lib/validator_cli.jar #{filename} -sct us -version 4.0.1 -ig hl7.fhir.us.core##{uscore_ver} > #{validation_file}" )
 end
 
 puts 'Generating Synthetic Patients with Synthea...'
@@ -59,14 +71,14 @@ if VERSION == 3
   CONFIG='--exporter.fhir.use_us_core_ig=true --exporter.baseDirectory=./output/raw --exporter.hospital.fhir.export=false --exporter.practitioner.fhir.export=false --exporter.groups.fhir.export=true'
 elsif VERSION == 4
   CLASSPATH='lib/synthea_uscore_v4/synthea.jar:lib/synthea_uscore_v4/SimulationCoreLibrary_v1.5_slim.jar:lib/synthea_uscore_v4/gson-2.8.7.jar:lib/synthea_uscore_v4/json-path-2.4.0.jar:lib/synthea_uscore_v4/hapi-fhir-structures-dstu3-5.7.0.jar:lib/synthea_uscore_v4/hapi-fhir-structures-dstu2-5.7.0.jar:lib/synthea_uscore_v4/hapi-fhir-structures-r4-5.7.0.jar:lib/synthea_uscore_v4/hapi-fhir-client-5.7.0.jar:lib/synthea_uscore_v4/org.hl7.fhir.dstu3-5.6.27.jar:lib/synthea_uscore_v4/org.hl7.fhir.r4-5.6.27.jar:lib/synthea_uscore_v4/org.hl7.fhir.utilities-5.6.27.jar:lib/synthea_uscore_v4/hapi-fhir-base-5.7.0.jar:lib/synthea_uscore_v4/freemarker-2.3.26-incubating.jar:lib/synthea_uscore_v4/guava-31.0.1-jre.jar:lib/synthea_uscore_v4/graphviz-java-0.2.4.jar:lib/synthea_uscore_v4/commons-csv-1.5.jar:lib/synthea_uscore_v4/jackson-datatype-jsr310-2.13.1.jar:lib/synthea_uscore_v4/cql-engine-1.3.12.jar:lib/synthea_uscore_v4/cql-to-elm-1.3.17.jar:lib/synthea_uscore_v4/jackson-databind-2.13.1.jar:lib/synthea_uscore_v4/jackson-annotations-2.13.1.jar:lib/synthea_uscore_v4/jackson-core-2.13.1.jar:lib/synthea_uscore_v4/jackson-dataformat-csv-2.13.1.jar:lib/synthea_uscore_v4/snakeyaml-1.27.jar:lib/synthea_uscore_v4/commons-math3-3.6.1.jar:lib/synthea_uscore_v4/commons-text-1.9.jar:lib/synthea_uscore_v4/commons-validator-1.4.0.jar:lib/synthea_uscore_v4/cql-1.3.17.jar:lib/synthea_uscore_v4/elm-1.3.17.jar:lib/synthea_uscore_v4/model-1.3.17.jar:lib/synthea_uscore_v4/spring-web-5.2.7.RELEASE.jar:lib/synthea_uscore_v4/jaxb-api-2.4.0-b180830.0359.jar:lib/synthea_uscore_v4/jaxb-runtime-2.3.2.jar:lib/synthea_uscore_v4/javax.activation-api-1.2.0.jar:lib/synthea_uscore_v4/quick-1.3.17.jar:lib/synthea_uscore_v4/qdm-1.3.17.jar:lib/synthea_uscore_v4/jaxb2-basics-0.12.0.jar:lib/synthea_uscore_v4/jaxb2-basics-tools-0.12.0.jar:lib/synthea_uscore_v4/jcl-over-slf4j-1.7.33.jar:lib/synthea_uscore_v4/jul-to-slf4j-1.7.25.jar:lib/synthea_uscore_v4/slf4j-log4j12-1.7.25.jar:lib/synthea_uscore_v4/jsbml-1.5.jar:lib/synthea_uscore_v4/jsbml-arrays-1.5.jar:lib/synthea_uscore_v4/jsbml-comp-1.5.jar:lib/synthea_uscore_v4/jsbml-distrib-1.5.jar:lib/synthea_uscore_v4/jsbml-dyn-1.5.jar:lib/synthea_uscore_v4/jsbml-fbc-1.5.jar:lib/synthea_uscore_v4/jsbml-groups-1.5.jar:lib/synthea_uscore_v4/jsbml-render-1.5.jar:lib/synthea_uscore_v4/jsbml-layout-1.5.jar:lib/synthea_uscore_v4/jsbml-multi-1.5.jar:lib/synthea_uscore_v4/jsbml-qual-1.5.jar:lib/synthea_uscore_v4/jsbml-req-1.5.jar:lib/synthea_uscore_v4/jsbml-spatial-1.5.jar:lib/synthea_uscore_v4/jsbml-tidy-1.5.jar:lib/synthea_uscore_v4/jsbml-core-1.5.jar:lib/synthea_uscore_v4/biojava-ontology-4.0.0.jar:lib/synthea_uscore_v4/slf4j-api-1.7.33.jar:lib/synthea_uscore_v4/log4j-1.2-api-2.3.jar:lib/synthea_uscore_v4/log4j-core-2.17.0.jar:lib/synthea_uscore_v4/commons-math-2.2.jar:lib/synthea_uscore_v4/jfreechart-1.5.0.jar:lib/synthea_uscore_v4/json-smart-2.3.jar:lib/synthea_uscore_v4/commons-lang3-3.12.0.jar:lib/synthea_uscore_v4/httpclient-4.5.13.jar:lib/synthea_uscore_v4/commons-codec-1.15.jar:lib/synthea_uscore_v4/batik-codec-1.9.jar:lib/synthea_uscore_v4/batik-rasterizer-1.9.jar:lib/synthea_uscore_v4/batik-svgrasterizer-1.9.jar:lib/synthea_uscore_v4/batik-transcoder-1.9.jar:lib/synthea_uscore_v4/batik-bridge-1.9.jar:lib/synthea_uscore_v4/batik-script-1.9.jar:lib/synthea_uscore_v4/batik-anim-1.9.jar:lib/synthea_uscore_v4/batik-svg-dom-1.9.jar:lib/synthea_uscore_v4/batik-dom-1.9.jar:lib/synthea_uscore_v4/batik-css-1.9.jar:lib/synthea_uscore_v4/xmlgraphics-commons-2.2.jar:lib/synthea_uscore_v4/commons-io-2.11.0.jar:lib/synthea_uscore_v4/jsr305-3.0.2.jar:lib/synthea_uscore_v4/okhttp-3.8.1.jar:lib/synthea_uscore_v4/httpcore-4.4.13.jar:lib/synthea_uscore_v4/j2v8_macosx_x86_64-4.6.0.jar:lib/synthea_uscore_v4/j2v8_linux_x86_64-4.6.0.jar:lib/synthea_uscore_v4/j2v8_win32_x86_64-4.6.0.jar:lib/synthea_uscore_v4/j2v8_win32_x86-4.6.0.jar:lib/synthea_uscore_v4/commons-exec-1.3.jar:lib/synthea_uscore_v4/commons-beanutils-1.9.3.jar:lib/synthea_uscore_v4/commons-digester-1.8.jar:lib/synthea_uscore_v4/commons-logging-1.2.jar:lib/synthea_uscore_v4/hamcrest-all-1.3.jar:lib/synthea_uscore_v4/hamcrest-json-0.2.jar:lib/synthea_uscore_v4/jaxb-impl-2.3.0.1.jar:lib/synthea_uscore_v4/jaxb-core-2.3.0.1.jar:lib/synthea_uscore_v4/javax.activation-1.2.0.jar:lib/synthea_uscore_v4/eclipselink-2.6.0.jar:lib/synthea_uscore_v4/validation-api-1.1.0.Final.jar:lib/synthea_uscore_v4/antlr4-4.5.jar:lib/synthea_uscore_v4/jopt-simple-4.7.jar:lib/synthea_uscore_v4/ucum-1.0.2.jar:lib/synthea_uscore_v4/spring-beans-5.2.7.RELEASE.jar:lib/synthea_uscore_v4/spring-core-5.2.7.RELEASE.jar:lib/synthea_uscore_v4/stax-ex-1.8.1.jar:lib/synthea_uscore_v4/jakarta.xml.bind-api-2.3.2.jar:lib/synthea_uscore_v4/txw2-2.3.2.jar:lib/synthea_uscore_v4/istack-commons-runtime-3.0.8.jar:lib/synthea_uscore_v4/FastInfoset-1.2.16.jar:lib/synthea_uscore_v4/jakarta.activation-api-1.2.1.jar:lib/synthea_uscore_v4/log4j-api-2.17.0.jar:lib/synthea_uscore_v4/accessors-smart-1.2.jar:lib/synthea_uscore_v4/failureaccess-1.0.1.jar:lib/synthea_uscore_v4/listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.jar:lib/synthea_uscore_v4/checker-qual-3.12.0.jar:lib/synthea_uscore_v4/error_prone_annotations-2.7.1.jar:lib/synthea_uscore_v4/j2objc-annotations-1.3.jar:lib/synthea_uscore_v4/okio-1.13.0.jar:lib/synthea_uscore_v4/batik-parser-1.9.jar:lib/synthea_uscore_v4/batik-gvt-1.9.jar:lib/synthea_uscore_v4/batik-svggen-1.9.jar:lib/synthea_uscore_v4/batik-awt-util-1.9.jar:lib/synthea_uscore_v4/batik-xml-1.9.jar:lib/synthea_uscore_v4/batik-util-1.9.jar:lib/synthea_uscore_v4/xalan-2.7.2.jar:lib/synthea_uscore_v4/serializer-2.7.2.jar:lib/synthea_uscore_v4/xml-apis-1.3.04.jar:lib/synthea_uscore_v4/jaxb2-basics-runtime-0.12.0.jar:lib/synthea_uscore_v4/javaparser-1.0.11.jar:lib/synthea_uscore_v4/jsonassert-1.1.1.jar:lib/synthea_uscore_v4/json-simple-1.1.1.jar:lib/synthea_uscore_v4/junit-4.12.jar:lib/synthea_uscore_v4/hamcrest-core-1.3.jar:lib/synthea_uscore_v4/log4j-1.2.17.jar:lib/synthea_uscore_v4/javax.persistence-2.1.0.jar:lib/synthea_uscore_v4/commonj.sdo-2.1.1.jar:lib/synthea_uscore_v4/javax.json-1.0.4.jar:lib/synthea_uscore_v4/antlr4-runtime-4.5.jar:lib/synthea_uscore_v4/ST4-4.0.8.jar:lib/synthea_uscore_v4/antlr-runtime-3.5.2.jar:lib/synthea_uscore_v4/xpp3-1.1.4c.jar:lib/synthea_uscore_v4/xpp3_xpath-1.1.4c.jar:lib/synthea_uscore_v4/spring-jcl-5.2.7.RELEASE.jar:lib/synthea_uscore_v4/woodstox-core-5.0.1.jar:lib/synthea_uscore_v4/jigsaw-2.2.6.jar:lib/synthea_uscore_v4/xstream-1.4.9.jar:lib/synthea_uscore_v4/staxmate-2.3.0.jar:lib/synthea_uscore_v4/jtidy-r938.jar:lib/synthea_uscore_v4/asm-5.0.4.jar:lib/synthea_uscore_v4/batik-ext-1.9.jar:lib/synthea_uscore_v4/xml-apis-ext-1.3.04.jar:lib/synthea_uscore_v4/batik-constants-1.9.jar:lib/synthea_uscore_v4/batik-i18n-1.9.jar:lib/synthea_uscore_v4/json-20090211.jar:lib/synthea_uscore_v4/commons-collections-3.2.2.jar:lib/synthea_uscore_v4/org.abego.treelayout.core-1.0.1.jar:lib/synthea_uscore_v4/stax2-api-3.1.4.jar:lib/synthea_uscore_v4/xmlpull-1.1.3.1.jar:lib/synthea_uscore_v4/xpp3_min-1.1.4c.jar'
-  CONFIG='--exporter.fhir.use_us_core_ig=true --exporter.baseDirectory=./output/raw --exporter.hospital.fhir.export=false --exporter.practitioner.fhir.export=false --exporter.groups.fhir.export=true'
+  CONFIG='--exporter.fhir.use_us_core_ig=true --exporter.baseDirectory=./output/raw --exporter.hospital.fhir.export=true --exporter.practitioner.fhir.export=true --exporter.groups.fhir.export=true'
 end
 
 if MRBURNS
   system( "java -cp #{CLASSPATH} App -s #{RAND_SEED} -a 80-81 -g M -p 50 #{CONFIG} --exporter.years_of_history=0 > output/synthea.log" )
 else
-  # system( "java -cp #{CLASSPATH} App -s #{RAND_SEED} -p 160 #{CONFIG} > output/synthea.log" )
-  system( "java -cp #{CLASSPATH} App -s #{RAND_SEED} -p 1 #{CONFIG} > output/synthea.log" )
+  system( "java -cp #{CLASSPATH} App -s #{RAND_SEED} -p 160 #{CONFIG} > output/synthea.log" )
+  # system( "java -cp #{CLASSPATH} App -s #{RAND_SEED} -p 10 #{CONFIG} > output/synthea.log" )
 end
 tok = Time.now.to_i
 puts "  Generated data in #{DataScript::TimeUtilities.pretty(tok - start)}."
@@ -77,7 +89,7 @@ all_group = nil
 input_folder = File.join(File.dirname(__FILE__), './output/raw/fhir')
 Dir.foreach(input_folder) do |file|
   next unless file.end_with?('.json')
-  next if file.start_with?('hospitalInformation', 'practitionerInformation')
+  next if VERSION == 3 && file.start_with?('hospitalInformation', 'practitionerInformation')
   json = File.open("#{input_folder}/#{file}", 'r:UTF-8', &:read)
   bundle = FHIR.from_contents(json)
   if bundle.resourceType == 'Group'
@@ -246,7 +258,7 @@ if patient_bundle_absent_name
   # run FHIR validator on output
   puts 'Running FHIR validator on output.'
   validation_file = "#{output_validation}/#{patient_bundle_absent_name.entry.first.resource.id}.txt"
-  system( "java -jar lib/validator_cli.jar #{filename} -sct us -version 4.0.1 -ig hl7.fhir.us.core#3.1.1 > #{validation_file}" )
+  validate(filename, validation_file)
 end
 
 tok = Time.now.to_i
@@ -304,14 +316,14 @@ selections.each do |bundle|
   # run FHIR validator on output
   filename = "#{output_data}/#{id}.json"
   validation_file = "#{output_validation}/#{id}.txt"
-  system( "java -jar lib/validator_cli.jar #{filename} -sct us -version 4.0.1 -ig hl7.fhir.us.core#3.1.1 > #{validation_file}" )
+  validate(filename, validation_file)
 end
 
 if patient_bundle_absent_name
   filename = "#{output_data}/#{patient_bundle_absent_name.entry.first.resource.id}.json"
   # run FHIR validator on output
   validation_file = "#{output_validation}/#{patient_bundle_absent_name.entry.first.resource.id}.txt"
-  system( "java -jar lib/validator_cli.jar #{filename} -sct us -version 4.0.1 -ig hl7.fhir.us.core#3.1.1 > #{validation_file}" )
+  validate(filename, validation_file)
 end
 tok = Time.now.to_i
 puts "  Validated #{selections.length + (patient_bundle_absent_name ? 1 : 0)} files (#{DataScript::TimeUtilities.pretty(tok - tik)})."

@@ -288,7 +288,7 @@ module DataScript
         dev = FHIR::Device.new(device.resource.to_hash)
         dev.id = SecureRandom.uuid
         dev.udiCarrier.first.carrierHRF = nil
-        barcode_file_path = File.join(File.dirname(__FILE__), './barcode.png')
+        barcode_file_path = File.join(File.dirname(__FILE__), '../barcode.png')
         barcode_file = File.open(barcode_file_path, 'rb')
         barcode_data = barcode_file.read
         barcode_file.close
@@ -316,7 +316,7 @@ module DataScript
       # select Bundle with Pulse Oximetry
       selection_pulse_ox = results.find {|b| DataScript::Constraints.has_pulse_ox(b)}
       if selection_pulse_ox
-        provenance = selection_device.entry.find { |e| e.resource.resourceType == 'Provenance' }
+        provenance = selection_pulse_ox.entry.find { |e| e.resource.resourceType == 'Provenance' }
         pulse_ox_entry = selection_pulse_ox.entry.find {|e| e.resource&.meta&.profile&.include? 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry' }
         pulse_ox_clone = nil
         2.times do
