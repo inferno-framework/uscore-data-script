@@ -23,13 +23,16 @@ The uscore-data-script will execute Synthea to generate synthetic patients, load
 FHIR Bundles, and select certain patients based on criteria described below.
 
 ```
-bundle exec ruby uscore-data-script.rb [mrburns]
+bundle exec ruby uscore-data-script.rb [mrburns] [version]
 ```
 
 There is an optional `mrburns` parameter, which if included, will generate a single longitudinal
 patient who possesses at least one resource conforming to every US Core profile. In other words,
 one patient with everything. If the `mrburns` parameter is not included, the script will generate
 a small collection of testing patients.
+
+There is an optional `version` parameter. Legal values are `v3` and `v4` to specify a version of
+the US Core Implementation Guide. The default value is `v4`.
 
 2. Use Data
 
@@ -74,7 +77,7 @@ on Pediatric BMI and Pediatric Weight, because the `Observation.value[x]` are re
 
 # License
 
-Copyright 2020 The MITRE Corporation
+Copyright 2020 - 2022 The MITRE Corporation
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
