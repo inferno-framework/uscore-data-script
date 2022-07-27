@@ -150,7 +150,7 @@ module DataScript
       end
 
       # sort the results by number of Conditions
-      results.sort do |a,b|
+      results.sort! do |a,b|
         count_a = a.entry.count {|e| e.resource.resourceType == 'Condition'}
         count_b = b.entry.count {|e| e.resource.resourceType == 'Condition'}
         count_a <=> count_b
