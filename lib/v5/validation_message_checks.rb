@@ -20,14 +20,15 @@ module DataScript
           # the tooling can't expand this valueset for some reason...
           line.include?("The value provided (\'F\') is not in the value set \'Birth Sex\' (http://hl7.org/fhir/us/core/ValueSet/birthsex")  ||
           line.include?("The value provided (\'M\') is not in the value set \'Birth Sex\' (http://hl7.org/fhir/us/core/ValueSet/birthsex")  ||
+          line.include?("The value provided (\'ASKU\') is not in the value set \'Birth Sex\' (http://hl7.org/fhir/us/core/ValueSet/birthsex")  ||
           line.include?("The value provided (\'OTH\') is not in the value set \'Birth Sex\' (http://hl7.org/fhir/us/core/ValueSet/birthsex")  ||
-          line.include?("The value provided (\'UNK\') is not in the value set \'Birth Sex\' (http://hl7.org/fhir/us/core/ValueSet/birthsex")  ||
           line.include?("The value provided (\'UNK\') is not in the value set \'Birth Sex\' (http://hl7.org/fhir/us/core/ValueSet/birthsex")  ||
           # the tooling can't expand this valueset for some reason...
           line.include?('The filter "concept = 768734005" from the value set http://cts.nlm.nih.gov/fhir/ValueSet/2.16.840.1.113762.1.4.1099.27 was not understood in the context of http://snomed.info/sct')  ||
           # the tooling can't tell that references to our patient are to a us-core-patient
           (line.include?('Unable to find a match for profile') && line.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient')) ||
           (line.include?('Unable to find a match for profile') && line.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-encounter')) ||
+          (line.include?('Unable to find a match for profile') && line.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab')) ||
           # the invariant is wrong or the tooling can't figure it out
           (line.include?('resource.ofType(DiagnosticReport)') && line.include?('us-core-8')) ||
           # the invariant is wrong or the tooling can't figure it out
