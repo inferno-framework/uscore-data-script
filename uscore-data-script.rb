@@ -71,7 +71,7 @@ def validate(filename, validation_file)
     logfile.each do |line|
       if line.start_with?('  Error @ Bundle.entry')
         new_line = DataScript::ValidationMessageChecks.check(line)
-        modifiedLogFile.write(new_line)
+        modifiedLogFile.write(new_line) unless new_line.nil?
       else
         modifiedLogFile.write(line)
       end
