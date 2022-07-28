@@ -27,6 +27,7 @@ if ARGV && ARGV.length >= 1
     require './lib/v5/constraints.rb'
     require './lib/v5/modifications.rb'
     require './lib/v5/choice_types.rb'
+    require './lib/v5/validation_message_checks.rb'
   else
     puts 'Using US Core version 4...'
     VERSION = 4
@@ -59,6 +60,26 @@ def validate(filename, validation_file)
   uscore_ver = '4.0.0' if VERSION == 4
   uscore_ver = '5.0.1' if VERSION == 5
   system( "java -jar lib/validator_cli.jar #{filename} -sct us -version 4.0.1 -ig hl7.fhir.us.core##{uscore_ver} > #{validation_file}" )
+
+  if VERSION == 5
+    logfile = File.open(validation_file, 'r:UTF-8')
+    filepath = validation_file.split(File::Separator)
+    filepath[filepath.length-1] = "edit_#{filepath.last}"
+    modifiedFilename = filepath.join(File::Separator)
+    modifiedLogFile = File.open(modifiedFilename, 'w:UTF-8')
+
+    logfile.each do |line|
+      if line.start_with?('  Error @ Bundle.entry')
+        new_line = DataScript::ValidationMessageChecks.check(line)
+        modifiedLogFile.write(new_line)
+      else
+        modifiedLogFile.write(line)
+      end
+    end
+
+    logfile.close
+    modifiedLogFile.close
+  end
 end
 
 puts 'Generating Synthetic Patients with Synthea...'
