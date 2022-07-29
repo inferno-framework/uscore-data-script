@@ -6,6 +6,10 @@ require './lib/bulk_data_converter.rb'
 
 RAND_SEED = 3
 
+def error(message)
+  puts "\e[31m#{message}\e[0m"
+end
+
 start = Time.now.to_i
 
 if ARGV && ARGV.length >= 1
@@ -64,7 +68,7 @@ def validate(filename, validation_file)
   if VERSION == 5
     logfile = File.open(validation_file, 'r:UTF-8')
     filepath = validation_file.split(File::Separator)
-    filepath[filepath.length-1] = "edit_#{filepath.last}"
+    filepath[filepath.length-1] = "_#{filepath.last}"
     modifiedFilename = filepath.join(File::Separator)
     modifiedLogFile = File.open(modifiedFilename, 'w:UTF-8')
 
@@ -222,14 +226,15 @@ puts 'Final constraint testing...'
 if constraints.satisfied?(selections)
   puts '  All constraints satisfied.'
 else
-  puts "  #{constraints.violations.length} remaining constraints violated: #{constraints.violations}"
+  error("  #{constraints.violations.length} remaining constraints violated: #{constraints.violations}")
 end
 profiles_present = constraints.profiles_present(selections)
 profiles_missing = DataScript::Constraints::REQUIRED_PROFILES - profiles_present
 if profiles_missing.empty?
   puts '  All profiles present.'
 else
-  puts "  Missing #{profiles_missing.length} profiles: #{profiles_missing}"
+  error("  Missing #{profiles_missing.length} profiles:")
+  profiles_missing.each {|p| error("    - #{p}")}
 end
 
 # Add the Group back

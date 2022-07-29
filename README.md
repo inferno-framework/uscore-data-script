@@ -31,7 +31,7 @@ patient who possesses at least one resource conforming to every US Core profile.
 one patient with everything. If the `mrburns` parameter is not included, the script will generate
 a small collection of testing patients.
 
-There is an optional `version` parameter. Legal values are `v3` and `v4` to specify a version of
+There is an optional `version` parameter. Legal values are `v3`, `v4`, and `v5` to specify a version of
 the US Core Implementation Guide. The default value is `v4`.
 
 2. Use Data

@@ -10,6 +10,9 @@ require 'time'
 module DataScript
   class Modifications
     DESIRED_MAX = 20
+    SDOH_CONDITIONS = ['160701002','224355006','32911000','105531004','5251000175109','224295006','224299000','73438004','160904001','741062008','160903007','713458007','266934004','422650009','423315002','266948004','446654005','424393004','706893006']
+    SDOH_OBSERVATIONS = ['32624-9','54899-0','56051-6','56799-0','63512-8','63586-2','67875-5','76437-3','76501-6','82589-3','93025-5','93026-3','93027-1','93028-9','93029-7','93030-5','93031-3','93033-9','93034-7','93035-4','93038-8']
+    SURVEY_OBSERVATIONS = ['44249-1','44261-6','55757-9','55758-7','59453-1','59460-6','59461-4','69737-5','70274-6','76499-3','76504-0','89204-2','89206-7']
 
     def self.modify!(results, random_seed = 3)
       FHIR.logger.level = :info
@@ -49,40 +52,44 @@ module DataScript
       end
 
       # Make sure there aren't stupid numbers of every resource type
-      missing_profiles = DataScript::Constraints::REQUIRED_PROFILES.dup
-      results.each do |bundle|
-        resource_counts = get_resource_counts(bundle)
-        provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }&.resource
-        next unless provenance
-        resource_counts.each do |type, count|
-          next unless count >= DESIRED_MAX
+      # missing_profiles = DataScript::Constraints::REQUIRED_PROFILES.dup
+      # puts '  - Removing resources...'
+      # all_deleted_ids = []
+      # results.each do |bundle|
+      #   resource_counts = get_resource_counts(bundle)
+      #   provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }&.resource
+      #   next unless provenance
+      #   resource_counts.each do |type, count|
+      #     next unless count >= DESIRED_MAX
 
-          deleted_ids = []
-          dr_observations = get_diagreport_referenced_observations(bundle)
-          dr_notes = get_docref_referenced_attachments(bundle)
-          encounter_refs = get_referenced_encounters(bundle)
-          reason_refs = get_referenced_reasons(bundle)
-          addresses_refs = get_addresses(bundle)
-          medication_refs = get_medreqs_with_med_references(bundle)
-          references = (dr_observations + dr_notes + encounter_refs + reason_refs + addresses_refs + medication_refs).compact.uniq
-          bundle.entry.find_all { |e| e.resource.resourceType == type }.shuffle(random: rng).each do |e|
-            break if deleted_ids.count >= (count - DESIRED_MAX)
+      #     deleted_ids = []
+      #     dr_observations = get_diagreport_referenced_observations(bundle)
+      #     dr_notes = get_docref_referenced_attachments(bundle)
+      #     encounter_refs = get_referenced_encounters(bundle)
+      #     reason_refs = get_referenced_reasons(bundle)
+      #     addresses_refs = get_addresses(bundle)
+      #     medication_refs = get_medreqs_with_med_references(bundle)
+      #     references = (dr_observations + dr_notes + encounter_refs + reason_refs + addresses_refs + medication_refs).compact.uniq
+      #     bundle.entry.find_all { |e| e.resource.resourceType == type }.shuffle(random: rng).each do |e|
+      #       break if deleted_ids.count >= (count - DESIRED_MAX)
 
-            profiles = e.resource&.meta&.profile || []
+      #       profiles = e.resource&.meta&.profile || []
 
-            # Only delete it if it's not somehow important
-            if !references.include?(e.resource.id) &&
-               !(e.resource.is_a?(FHIR::Observation) && e.resource&.code&.text.start_with?('Tobacco smoking status')) &&
-               (missing_profiles & profiles).empty?
-              deleted_ids << e.resource.id
-            elsif !(missing_profiles & profiles).empty?
-              missing_profiles -= profiles
-            end
-          end
-          bundle.entry.delete_if { |e| deleted_ids.include? e.resource.id }
-          remove_provenance_targets(deleted_ids, provenance)
-        end
-      end
+      #       # Only delete it if it's not somehow important
+      #       if !references.include?(e.resource.id) &&
+      #          !(e.resource.is_a?(FHIR::Observation) && e.resource&.code&.text.start_with?('Tobacco smoking status')) &&
+      #          (missing_profiles & profiles).empty?
+      #         deleted_ids << e.resource.id
+      #       elsif !(missing_profiles & profiles).empty?
+      #         missing_profiles -= profiles
+      #       end
+      #     end
+      #     bundle.entry.delete_if { |e| deleted_ids.include? e.resource.id }
+      #     remove_provenance_targets(deleted_ids, provenance)
+      #     all_deleted_ids.append(deleted_ids)
+      #   end
+      # end
+      # puts "    - Removed #{all_deleted_ids.flatten.uniq.count} resources from #{results.length} Bundles."
 
       # add reaction.manifestation to allergy intolerance result because of must support changes in 3.1.1
       already_contains_reaction_manifestation =
@@ -172,6 +179,29 @@ module DataScript
       alter_condition(selection_conditions, rng)
       puts "  - Altered Condition:  #{selection_conditions.entry.first.resource.id}"
 
+      puts '  - Rewriting Condition Profiles for v5...'
+      this_or_that = true
+      results.each do |bundle|
+        bundle.entry.each do |entry|
+          next unless entry.resource.resourceType == 'Condition'
+          category = entry.resource.category&.first&.coding&.first&.code
+          if SDOH_CONDITIONS.include?(entry.resource.code&.coding&.first&.code)
+            entry.resource.meta.profile[0] = 'http://hl7.org/fhir/us/core//StructureDefinition/us-core-condition-problems-health-concerns'
+            entry.resource.category = []
+            if this_or_that
+              entry.resource.category << create_codeable_concept('http://terminology.hl7.org/CodeSystem/condition-category', 'problem-list-item', 'Problem List Item')
+            else
+              entry.resource.category << create_codeable_concept('http://hl7.org/fhir/us/core/CodeSystem/condition-category', 'health-concern', 'Health Concern')
+            end
+            this_or_that = !this_or_that
+            entry.resource.category << create_codeable_concept('http://hl7.org/fhir/us/core/CodeSystem/us-core-tags', 'sdoh', 'SDOH')
+          elsif category == 'encounter-diagnosis'
+            entry.resource.meta.profile[0] = 'http://hl7.org/fhir/us/core//StructureDefinition/us-core-condition-encounter-diagnosis'
+          end
+          entry.resource.extension << asserted_date(entry.resource.recordedDate)
+        end
+      end
+
       # select someone with the most numerous gender
       # from the people remaining, and remove their name
       unless MRBURNS
@@ -198,7 +228,7 @@ module DataScript
         puts "  - Altered DocumentReference URL: #{docref.id}"
         puts "  - Altered DiagnosticReport  URL: #{report.id}"
       else
-        puts "  * FAILED to find DocumentReference!"
+        error('  * FAILED to find DocumentReference!')
       end
 
       # collect all the clinical notes and modify codes so we have at least one of each type
@@ -400,19 +430,20 @@ module DataScript
         'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure' #'http://hl7.org/fhir/StructureDefinition/bp'
       ]
       observation_profiles = [
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-vital-signs',
         'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab',
-        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-smokingstatus',
-        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry',
-        'http://hl7.org/fhir/us/core/StructureDefinition/head-occipital-frontal-circumference-percentile',
-        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-respiratory-rate', #'http://hl7.org/fhir/StructureDefinition/resprate',
-        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-heart-rate', #'http://hl7.org/fhir/StructureDefinition/heartrate',
-        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-body-temperature', #'http://hl7.org/fhir/StructureDefinition/bodytemp',
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-bmi', #'http://hl7.org/fhir/StructureDefinition/bmi',
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-head-circumference',
         'http://hl7.org/fhir/us/core/StructureDefinition/us-core-body-height', #'http://hl7.org/fhir/StructureDefinition/bodyheight',
         'http://hl7.org/fhir/us/core/StructureDefinition/us-core-body-weight', #'http://hl7.org/fhir/StructureDefinition/bodyweight',
-        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-bmi', #'http://hl7.org/fhir/StructureDefinition/bmi',
-        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure' #'http://hl7.org/fhir/StructureDefinition/bp'
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-body-temperature', #'http://hl7.org/fhir/StructureDefinition/bodytemp',
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-heart-rate', #'http://hl7.org/fhir/StructureDefinition/heartrate',
+        'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-bmi-for-age',
+        'http://hl7.org/fhir/us/core/StructureDefinition/head-occipital-frontal-circumference-percentile',
+        'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-weight-for-height',
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry',
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-respiratory-rate' #'http://hl7.org/fhir/StructureDefinition/resprate',
       ]
-
       # Add missing Head Circumference Percent resource
       unless DataScript::Constraints.has_headcircum(results)
         headcircum_resource = FHIR::Observation.new({
@@ -461,26 +492,46 @@ module DataScript
         provenance.target.last.reference = "urn:uuid:#{headcircum_resource.id}"
       end
 
-      puts "  - Checking for Observation valueQuantity, valueCodeableConcept, and valueString..."
+      puts '  - Rewriting Observation Profiles for v5...'
+      error('    *** TBD split PRAPARE apart and create QuestionnaireResponse... ***')
+      obs_profiles = Hash.new(0)
       results.each do |bundle|
-        entries = bundle.entry.select {|entry| entry.resource.is_a?(FHIR::Observation)}
-        observations = entries.map {|entry| entry.resource}
-        # check for valueQuantity
-        hasValue = observations.any? {|observation| observation.valueQuantity != nil }
-        observation_values_found['valueQuantity'] = true if hasValue
-        # check for valueCodeableConcept
-        hasValue = observations.any? {|observation| observation.valueCodeableConcept != nil }
-        observation_values_found['valueCodeableConcept'] = true if hasValue
-        # check for valueString
-        hasValue = observations.any? {|observation| observation.valueString != nil }
-        observation_values_found['valueString'] = true if hasValue
-        break if observation_values_found.values.all? { |value| value == true }
+        bundle.entry.each do |entry|
+          next unless entry.resource.resourceType == 'Observation'
+          category = entry.resource.category&.first&.coding&.first&.code
+          code = entry.resource.code&.coding&.first&.code
+          if code == '93025-5' # PRAPARE Multi-Observation
+            # TODO Split this apart and create a QuestionnaireResponse
+            # TODO must support .derivedFrom
+
+          elsif SURVEY_OBSERVATIONS.include?(code)
+            profile = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-survey'
+            entry.resource.meta = FHIR::Meta.new
+            entry.resource.meta.profile = [ profile ]
+            entry.resource.category = [ create_codeable_concept('http://terminology.hl7.org/CodeSystem/observation-category','survey','Survey') ]
+            obs_profiles[profile] += 1
+          elsif SDOH_OBSERVATIONS.include?(code)
+            profile = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-social-history'
+            entry.resource.meta = FHIR::Meta.new
+            entry.resource.meta.profile = [ profile ]
+            entry.resource.category = [ create_codeable_concept('http://terminology.hl7.org/CodeSystem/observation-category', 'social-history', 'Social History') ]
+            entry.resource.category << create_codeable_concept('http://hl7.org/fhir/us/core/CodeSystem/us-core-tags', 'sdoh', 'SDOH')
+            obs_profiles[profile] += 1
+          elsif category == 'survey'
+            # catch any remaining survey obs that weren't SDOH related...
+            profile = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-survey'
+            entry.resource.meta = FHIR::Meta.new
+            entry.resource.meta.profile = [ profile ]
+            entry.resource.category = [ create_codeable_concept('http://terminology.hl7.org/CodeSystem/observation-category','survey','Survey') ]
+            obs_profiles[profile] += 1
+          end
+        end
       end
-      observation_values_found.each do |key, value|
-        puts "    Found #{key}: #{value}"
+      obs_profiles.each do |profile,count|
+        puts "    - Labeled #{count} instances of #{profile}"
       end
 
-      puts "  - Processing Observation Data Absent Reasons"
+      puts '  - Processing Observation Data Absent Reasons'
       results.each do |bundle|
         next if bundle.entry.first.resource.resourceType != 'Patient' # skip bundles of Organizations and Practitioners...
         provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
@@ -516,9 +567,32 @@ module DataScript
         end
       end
       unless observation_profiles.empty?
-        puts "  * Missed Observation Data Absent Reasons"
+        error('  * Missed Observation Data Absent Reasons')
         observation_profiles.each do |profile_url|
-          puts "    ** #{profile_url}"
+          error("    ** #{profile_url}")
+        end
+      end
+
+      puts '  - Checking for Observation valueQuantity, valueCodeableConcept, and valueString...'
+      results.each do |bundle|
+        entries = bundle.entry.select {|entry| entry.resource.is_a?(FHIR::Observation)}
+        observations = entries.map {|entry| entry.resource}
+        # check for valueQuantity
+        hasValue = observations.any? {|observation| observation.valueQuantity != nil }
+        observation_values_found['valueQuantity'] = true if hasValue
+        # check for valueCodeableConcept
+        hasValue = observations.any? {|observation| observation.valueCodeableConcept != nil }
+        observation_values_found['valueCodeableConcept'] = true if hasValue
+        # check for valueString
+        hasValue = observations.any? {|observation| observation.valueString != nil }
+        observation_values_found['valueString'] = true if hasValue
+        break if observation_values_found.values.all? { |value| value == true }
+      end
+      observation_values_found.each do |key, value|
+        if value
+          puts "    Found #{key}: #{value}"
+        else
+          error("    Found #{key}: #{value}")
         end
       end
 
@@ -526,7 +600,7 @@ module DataScript
       results.each do |bundle|
         bundle.entry.delete_if {|e| ['Claim','ExplanationOfBenefit','ImagingStudy','MedicationAdministration','SupplyDelivery'].include?(e.resource.resourceType)}
       end
-      puts "  - Removed resources out of scope for US Core."
+      puts '  - Removed resources out of scope for US Core.'
       # There are probably some observations remaining after this that are not US Core profiles,
       # but they likely are referenced from DiagnosticReports which are US Core profiled.
 
@@ -537,25 +611,25 @@ module DataScript
         uuids = bundle.entry.map {|e| e.fullUrl}
         provenance.target.keep_if {|reference| uuids.include?(reference.reference) }
       end
-      puts "  - Rewrote Provenance targets."
+      puts '  - Rewrote Provenance targets.'
 
       DataScript::ChoiceTypeCreator.check_choice_types(results)
 
       # DiagnosticReports need to have two performer types, so we add them here
-      puts "  - Modifying DiagnosticReport performer types..."
+      puts '  - Modifying DiagnosticReport performer types...'
       dr_bundle = results.find do |b|
         b.entry.any? do |e|
-          e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta.profile.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-note')
+          e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta&.profile&.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-note')
         end &&
           b.entry.any? do |e|
-            e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta.profile.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab')
+            e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta&.profile&.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab')
           end
       end
       dr_notes = dr_bundle.entry.find_all do |e|
-        e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta.profile.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-note')
+        e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta&.profile&.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-note')
       end.map {|e| e.resource }
       dr_labs = dr_bundle.entry.find_all do |e|
-        e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta.profile.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab')
+        e.resource.is_a?(FHIR::DiagnosticReport) && e.resource.meta&.profile&.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab')
       end.map {|e| e.resource }
       practitioner_bundle = results.find {|b| b.entry.first.resource.resourceType == 'Practitioner'}
       dr_practitioner = practitioner_bundle.entry.find { |e| e.resource.is_a? FHIR::Practitioner }.resource.identifier.first
@@ -620,6 +694,13 @@ module DataScript
       extension = FHIR::Extension.new
       extension.url = 'http://hl7.org/fhir/StructureDefinition/data-absent-reason'
       extension.valueCode = 'unknown'
+      extension
+    end
+
+    def self.asserted_date(date)
+      extension = FHIR::Extension.new
+      extension.url = 'http://hl7.org/fhir/StructureDefinition/condition-assertedDate'
+      extension.valueDateTime = date.split('T').first
       extension
     end
 
