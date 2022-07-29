@@ -492,19 +492,70 @@ module DataScript
         provenance.target.last.reference = "urn:uuid:#{headcircum_resource.id}"
       end
 
-      puts '  - Rewriting Observation Profiles for v5...'
-      error('    *** TBD split PRAPARE apart and create QuestionnaireResponse... ***')
-      obs_profiles = Hash.new(0)
+      puts '  - Preprocessing PRAPARE Observations...'
+      error('    *** TBD Fix QuestionnaireResponse LinkIds for PRAPARE... ***')
+      prapare_count = 0
       results.each do |bundle|
+        next if bundle.entry.first.resource.resourceType != 'Patient' # skip bundles of Organizations and Practitioners...
+        provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
         bundle.entry.each do |entry|
           next unless entry.resource.resourceType == 'Observation'
           category = entry.resource.category&.first&.coding&.first&.code
           code = entry.resource.code&.coding&.first&.code
           if code == '93025-5' # PRAPARE Multi-Observation
-            # TODO Split this apart and create a QuestionnaireResponse
-            # TODO must support .derivedFrom
+            # Create a QuestionnaireResponse
+            questionnaireResponse = create_questionnaire_response_from_multiobservation(entry.resource)
+            questionnaireResponseReference = FHIR::Reference.new
+            questionnaireResponseReference.reference = "urn:uuid:#{questionnaireResponse.id}"
+            provenance.target << questionnaireResponseReference
+            bundle.entry << create_bundle_entry(questionnaireResponse)
 
-          elsif SURVEY_OBSERVATIONS.include?(code)
+            entry.resource.meta = FHIR::Meta.new
+            entry.resource.meta.profile = [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-sdoh-assessment' ]
+            entry.resource.category = [ create_codeable_concept('http://terminology.hl7.org/CodeSystem/observation-category','survey','Survey') ]
+            entry.resource.category << create_codeable_concept('http://hl7.org/fhir/us/core/CodeSystem/us-core-tags', 'sdoh', 'SDOH')
+            entry.resource.hasMember = []
+            entry.resource.derivedFrom = [ questionnaireResponseReference ]
+            entry.resource.component.each do |component|
+              instance = FHIR::Json.from_json(entry.resource.to_json)
+              instance.id = SecureRandom.uuid
+              instance.component = nil
+              instance.meta = FHIR::Meta.new
+              instance.meta.profile = [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-sdoh-assessment' ]
+              instance.category = [ create_codeable_concept('http://terminology.hl7.org/CodeSystem/observation-category','survey','Survey') ]
+              instance.category << create_codeable_concept('http://hl7.org/fhir/us/core/CodeSystem/us-core-tags', 'sdoh', 'SDOH')
+              instance.code = component.code
+              instance.derivedFrom = FHIR::Reference.new
+              instance.derivedFrom.reference = entry.fullUrl
+              if component.valueQuantity
+                instance.valueQuantity = component.valueQuantity
+              elsif component.valueString
+                instance.valueString = component.valueString
+              elsif component.valueCodeableConcept
+                instance.valueCodeableConcept = component.valueCodeableConcept
+              end
+              reference = FHIR::Reference.new
+              reference.reference = "urn:uuid:#{instance.id}"
+              provenance.target << reference
+              entry.resource.hasMember << reference
+              bundle.entry << create_bundle_entry(instance)
+            end
+            prapare_count += 1
+          end
+        end
+      end
+      puts "    - Rewrote #{prapare_count} PRAPARE Observations..."
+      puts '  - Rewriting Observation Profiles for v5...'
+      obs_profiles = Hash.new(0)
+      results.each do |bundle|
+        next if bundle.entry.first.resource.resourceType != 'Patient' # skip bundles of Organizations and Practitioners...
+        bundle.entry.each do |entry|
+          next unless entry.resource.resourceType == 'Observation'
+          next if entry.resource.meta&.profile&.include?('http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-sdoh-assessment')
+
+          category = entry.resource.category&.first&.coding&.first&.code
+          code = entry.resource.code&.coding&.first&.code
+          if SURVEY_OBSERVATIONS.include?(code)
             profile = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-survey'
             entry.resource.meta = FHIR::Meta.new
             entry.resource.meta.profile = [ profile ]
@@ -830,6 +881,37 @@ module DataScript
       ids.each do |id|
         provenance.target.delete_if { |target| target.id == id }
       end
+    end
+
+    def self.create_questionnaire_response_from_multiobservation(observation)
+      questionnaireResponse = FHIR::QuestionnaireResponse.new
+      questionnaireResponse.id = SecureRandom.uuid
+      questionnaireResponse.meta = FHIR::Meta.new
+      questionnaireResponse.meta.profile = [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-questionnaireresponse' ]
+      questionnaireResponse.meta.tag = [ FHIR::Coding.new ]
+      questionnaireResponse.meta.tag.last.code = 'sdoh'
+      questionnaireResponse.meta.tag.last.display = 'SDOH'
+      questionnaireResponse.meta.tag.last.system = 'http://hl7.org/fhir/us/core/CodeSystem/us-core-tags'
+      questionnaireResponse.questionnaire = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-extension-questionnaire-uri'
+      questionnaireResponse.status = 'completed'
+      questionnaireResponse.subject = observation.subject
+      questionnaireResponse.encounter = observation.encounter
+      questionnaireResponse.authored = observation.issued
+      questionnaireResponse.item = []
+      observation.component.each do |component|
+        questionnaireResponse.item << FHIR::QuestionnaireResponse::Item.new
+        questionnaireResponse.item.last.linkId = "/#{component.code.coding.first.code}"
+        questionnaireResponse.item.last.text = component.code.text
+        questionnaireResponse.item.last.answer = [ FHIR::QuestionnaireResponse::Item::Answer.new ]
+        if component.valueQuantity
+          questionnaireResponse.item.last.answer.last.valueQuantity = component.valueQuantity
+        elsif component.valueCodeableConcept
+          questionnaireResponse.item.last.answer.last.valueCoding = component.valueCodeableConcept.coding.first
+        elsif component.valueString
+          questionnaireResponse.item.last.answer.last.valueString = component.valueString
+        end
+      end
+      questionnaireResponse
     end
   end
 end
