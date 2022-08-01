@@ -442,7 +442,8 @@ module DataScript
         'http://hl7.org/fhir/us/core/StructureDefinition/head-occipital-frontal-circumference-percentile',
         'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-weight-for-height',
         'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry',
-        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-respiratory-rate' #'http://hl7.org/fhir/StructureDefinition/resprate',
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-respiratory-rate', #'http://hl7.org/fhir/StructureDefinition/resprate',
+        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-imaging'
       ]
       # Add missing Head Circumference Percent resource
       unless DataScript::Constraints.has_headcircum(results)
@@ -490,6 +491,51 @@ module DataScript
         provenance = results.first.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
         provenance.target << FHIR::Reference.new
         provenance.target.last.reference = "urn:uuid:#{headcircum_resource.id}"
+      end
+
+      puts '  - Adding Observation Imaging Results for each ImagingStudy...'
+      imaging_study_codes = [
+        ['18782-3','Radiology Study observation (narrative)'],
+        ['19005-8','Radiology Imaging study [Impression] (narrative)'],
+        ['18834-2','Radiology Comparison study (narrative)']
+      ]
+      imaging_study_obs_added = 0
+      results.each do |bundle|
+        next if bundle.entry.first.resource.resourceType != 'Patient' # skip bundles of Organizations and Practitioners...
+        provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
+        bundle.entry.each do |entry|
+          next unless entry.resource.resourceType == 'ImagingStudy'
+          code = imaging_study_codes.sample
+          imaging_study_obs = FHIR::Observation.new({
+            id: SecureRandom.uuid,
+            meta: { profile: [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-imaging' ] },
+            category: [{ coding: [{
+              system: 'http://terminology.hl7.org/CodeSystem/observation-category',
+              code: 'imaging',
+              display: 'Imaging'
+            }]}],
+            code: { coding: [{
+              system: 'http://loinc.org',
+              code: code.first,
+              display: code.last
+            }]},
+            subject: entry.resource.subject,
+            encounter: entry.resource.encounter,
+            status: 'final',
+            effectiveDateTime: entry.resource.started,
+            valueString: "#{entry.resource.procedureCode.first.text} results: abnormal"
+          })
+          imaging_study_obs_reference = FHIR::Reference.new
+          imaging_study_obs_reference.reference = "urn:uuid:#{imaging_study_obs.id}"
+          provenance.target << imaging_study_obs_reference
+          bundle.entry << create_bundle_entry(imaging_study_obs)
+          imaging_study_obs_added += 1
+        end
+      end
+      if imaging_study_obs_added > 0
+        puts ("    - Generated #{imaging_study_obs_added} observation imaging results.")
+      else
+        error("    * Unable to find an ImagingStudy to make an observation imaging result.")
       end
 
       puts '  - Preprocessing PRAPARE Observations...'
