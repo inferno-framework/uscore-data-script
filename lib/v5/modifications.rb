@@ -13,6 +13,7 @@ module DataScript
     SDOH_CONDITIONS = ['160701002','224355006','32911000','105531004','5251000175109','224295006','224299000','73438004','160904001','741062008','160903007','713458007','266934004','422650009','423315002','266948004','446654005','424393004','706893006']
     SDOH_OBSERVATIONS = ['32624-9','54899-0','56051-6','56799-0','63512-8','63586-2','67875-5','76437-3','76501-6','82589-3','93025-5','93026-3','93027-1','93028-9','93029-7','93030-5','93031-3','93033-9','93034-7','93035-4','93038-8']
     SURVEY_OBSERVATIONS = ['44249-1','44261-6','55757-9','55758-7','59453-1','59460-6','59461-4','69737-5','70274-6','76499-3','76504-0','89204-2','89206-7']
+    CLINICAL_TEST_OBSERVATIONS = ['44963-7']
 
     def self.modify!(results, random_seed = 3)
       FHIR.logger.level = :info
@@ -108,12 +109,101 @@ module DataScript
           next if allergy_intoleranace_resource.nil?
 
           reaction = FHIR::AllergyIntolerance::Reaction.new
-          manifestation = create_codeable_concept('http://snomed.info/sct', '271807003', 'skin rash')
+          manifestation = create_codeable_concept('http://snomed.info/sct', '271807003', 'Eruption of skin (disorder)')
           reaction.manifestation << manifestation
           allergy_intoleranace_resource.reaction << reaction
           puts "  - Altered AllergyIntolerance: #{allergy_intoleranace_resource.id}"
           break
         end
+      end
+
+      # Add a ServiceRequest for each CarePlan
+      service_requests_for_careplans = 0
+      results.each do |bundle|
+        next if bundle.entry.first.resource.resourceType != 'Patient' # skip bundles of Organizations and Practitioners...
+        provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
+        bundle.entry.each do |entry|
+          next unless entry.resource.resourceType == 'CarePlan'
+          # Add a ServiceRequest
+          encounter = get_resource_by_id(bundle, entry.resource.encounter.reference)
+          service_request = FHIR::ServiceRequest.new({
+            id: SecureRandom.uuid,
+            meta: { profile: [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-servicerequest' ] },
+            category: [{ coding: [{
+              system: 'http://snomed.info/sct',
+              code: '409073007',
+              display: 'Education'
+            }]}],
+            code: entry.resource.category.last,
+            subject: entry.resource.subject,
+            encounter: entry.resource.encounter,
+            requester: encounter&.participant&.first&.individual,
+            status: entry.resource.status,
+            intent: 'order',
+            occurrencePeriod: entry.resource.period,
+            authoredOn: entry.resource.period.start
+          })
+          service_request_reference = FHIR::Reference.new
+          service_request_reference.reference = "urn:uuid:#{service_request.id}"
+          provenance.target << service_request_reference
+          bundle.entry << create_bundle_entry(service_request)
+          service_requests_for_careplans += 1
+        end
+      end
+      if service_requests_for_careplans > 0
+        puts ("  - Generated #{service_requests_for_careplans} service requests for CarePlans.")
+      else
+        error("    * Unable to find a CarePlan to make an service request.")
+      end
+
+      # Add a RelatedPerson to each CareTeam
+      related_person_for_careteam = 0
+      results.each do |bundle|
+        next if bundle.entry.first.resource.resourceType != 'Patient' # skip bundles of Organizations and Practitioners...
+        provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
+        careteam = bundle.entry.find { |e| e.resource.is_a? FHIR::CareTeam }.resource
+        next if careteam.nil?
+        # Add a RelatedPerson
+        related_person = FHIR::RelatedPerson.new({
+          id: SecureRandom.uuid,
+          meta: { profile: [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-relatedperson' ] },
+          active: (careteam.status == 'active'),
+          patient: careteam.subject,
+          relationship: [{ coding: [{
+            system: 'http://terminology.hl7.org/CodeSystem/v3-RoleCode',
+            code: 'ROOM',
+            display: 'Roommate'
+          }]}],
+          name: [{
+            use: 'official',
+            family: 'Jefferson174',
+            given: [ 'Ronald408', 'MacGyver246' ],
+            prefix: [ 'Mr.' ]
+          }],
+          telecom: bundle.entry.first.resource.telecom,
+          address: bundle.entry.first.resource.address
+        })
+        related_person_reference = FHIR::Reference.new
+        related_person_reference.reference = "urn:uuid:#{related_person.id}"
+        provenance.target << related_person_reference
+        bundle.entry << create_bundle_entry(related_person)
+        careteam.participant << FHIR::CareTeam::Participant.new({
+          role: [ {
+            coding: [ {
+              system: 'http://snomed.info/sct',
+              code: '133932002',
+              display: 'Caregiver (person)'
+            } ],
+            text: 'Caregiver (person)'
+          } ],
+          member: related_person_reference
+        })
+        related_person_for_careteam += 1
+      end
+      if related_person_for_careteam > 0
+        puts ("  - Generated #{related_person_for_careteam} service requests for CareTeams.")
+      else
+        error("    * Unable to find a CareTeam to add a RelatedPerson into.")
       end
 
       # Add discharge disposition to every encounter referenced by a medicationRequest of each record
@@ -407,7 +497,7 @@ module DataScript
         goal.meta.profile = ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-goal']
         goal.id = SecureRandom.uuid
         goal.lifecycleStatus = 'active'
-        goal.description = create_codeable_concept('http://snomed.info/sct', '281004', 'Alcoholic dementia')
+        goal.description = create_codeable_concept('http://snomed.info/sct', '281004', 'Dementia associated with alcoholism (disorder)')
         goal.subject = { reference: "urn:uuid:#{DataScript::Constraints.patient(goal_bundle).id}" }
         goal_target = FHIR::Goal::Target.new
         goal_target.dueDate = Time.now.strftime("%Y-%m-%d")
@@ -430,7 +520,7 @@ module DataScript
         'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure' #'http://hl7.org/fhir/StructureDefinition/bp'
       ]
       observation_profiles = [
-        'http://hl7.org/fhir/us/core/StructureDefinition/us-core-vital-signs',
+        #'http://hl7.org/fhir/us/core/StructureDefinition/us-core-vital-signs', # vital-signs is more or less an abstract profile
         'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab',
         'http://hl7.org/fhir/us/core/StructureDefinition/us-core-bmi', #'http://hl7.org/fhir/StructureDefinition/bmi',
         'http://hl7.org/fhir/us/core/StructureDefinition/us-core-head-circumference',
@@ -493,7 +583,7 @@ module DataScript
         provenance.target.last.reference = "urn:uuid:#{headcircum_resource.id}"
       end
 
-      puts '  - Adding Observation Imaging Results for each ImagingStudy...'
+      puts '  - Adding Observation Imaging Results and ServiceRequests for each ImagingStudy...'
       imaging_study_codes = [
         ['18782-3','Radiology Study observation (narrative)'],
         ['19005-8','Radiology Imaging study [Impression] (narrative)'],
@@ -505,6 +595,7 @@ module DataScript
         provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
         bundle.entry.each do |entry|
           next unless entry.resource.resourceType == 'ImagingStudy'
+          # Add an Observation Imaging Result
           code = imaging_study_codes.sample
           imaging_study_obs = FHIR::Observation.new({
             id: SecureRandom.uuid,
@@ -530,31 +621,132 @@ module DataScript
           provenance.target << imaging_study_obs_reference
           bundle.entry << create_bundle_entry(imaging_study_obs)
           imaging_study_obs_added += 1
+
+          # Add a ServiceRequest
+          encounter = get_resource_by_id(bundle, entry.resource.encounter.reference)
+          service_request = FHIR::ServiceRequest.new({
+            id: SecureRandom.uuid,
+            meta: { profile: [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-servicerequest' ] },
+            category: [{ coding: [{
+              system: 'http://snomed.info/sct',
+              code: '363679005',
+              display: 'Imaging'
+            }]}],
+            code: entry.resource.procedureCode,
+            subject: entry.resource.subject,
+            encounter: entry.resource.encounter,
+            requester: encounter&.participant&.first&.individual,
+            status: 'completed',
+            intent: 'order',
+            occurrenceDateTime: entry.resource.started,
+            authoredOn: entry.resource.started
+          })
+          service_request_reference = FHIR::Reference.new
+          service_request_reference.reference = "urn:uuid:#{service_request.id}"
+          provenance.target << service_request_reference
+          bundle.entry << create_bundle_entry(service_request)
         end
       end
       if imaging_study_obs_added > 0
-        puts ("    - Generated #{imaging_study_obs_added} observation imaging results.")
+        puts ("    - Generated #{imaging_study_obs_added} each: observation imaging results, and service requests.")
       else
         error("    * Unable to find an ImagingStudy to make an observation imaging result.")
       end
 
+      puts '  - Relabeling Clinical Test Observations...'
+      relabeled_clinical_test_obs = 0
+      results.each do |bundle|
+        next if bundle.entry.first.resource.resourceType != 'Patient' # skip bundles of Organizations and Practitioners...
+        bundle.entry.each do |entry|
+          next unless entry.resource.resourceType == 'Observation'
+          if CLINICAL_TEST_OBSERVATIONS.include?(entry.resource.code.coding.first.code)
+            entry.resource.meta = FHIR::Meta.new
+            entry.resource.meta.profile = ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-clinical-test']
+            entry.resource.category = [ create_codeable_concept('http://hl7.org/fhir/us/core/CodeSystem/us-core-observation-category', 'clinical-test', 'Clinical Test') ]
+            relabeled_clinical_test_obs += 1
+          end
+        end
+      end
+      if relabeled_clinical_test_obs > 0
+        puts ("    - Relabeled #{relabeled_clinical_test_obs} clinical test observations.")
+      else
+        puts ("    * Unable to find an clinical test observation to relabel (this is not an error).")
+      end
+
+      puts '  - Generating Clinical Test Observations for some Procedures...'
+      generated_clinical_test_obs = 0
+      results.each do |bundle|
+        next if bundle.entry.first.resource.resourceType != 'Patient' # skip bundles of Organizations and Practitioners...
+        provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
+        last_encounter = bundle.entry.reverse.find { |e| e.resource.is_a? FHIR::Encounter }.resource
+        walk_test_obs = FHIR::Observation.new({
+          id: SecureRandom.uuid,
+          meta: { profile: [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-clinical-test' ] },
+          category: [{ coding: [{
+            system: 'http://hl7.org/fhir/us/core/CodeSystem/us-core-observation-category',
+            code: 'clinical-test',
+            display: 'Clinical Test'
+          }]}],
+          code: { coding: [{
+            system: 'http://loinc.org',
+            code: '64098-7',
+            display: 'Six minute walk test'
+          }]},
+          subject: last_encounter.subject,
+          encounter: { reference: "urn:uuid:#{last_encounter.id}" },
+          status: 'final',
+          effectivePeriod: last_encounter.period,
+          valueQuantity: {
+            value: ((300 * rand) + 400).to_i,
+            unit: 'm/(6.min)',
+            system: 'http://unitsofmeasure.org',
+            code: 'm/(6.min)'
+          }
+        })
+        walk_test_obs_reference = FHIR::Reference.new
+        walk_test_obs_reference.reference = "urn:uuid:#{walk_test_obs.id}"
+        provenance.target << walk_test_obs_reference
+        bundle.entry << create_bundle_entry(walk_test_obs)
+        generated_clinical_test_obs += 1
+      end
+      if generated_clinical_test_obs > 0
+        puts ("    - Generated #{generated_clinical_test_obs} clinical test observations.")
+      else
+        error("    * Unable to find an Encounter to add a walk test onto.")
+      end
+
+      sexual_orientation_codes = [
+        create_codeable_concept('http://snomed.info/sct', '38628009', 'Homosexuality'),
+        create_codeable_concept('http://snomed.info/sct', '20430005', 'Heterosexual state'),
+        create_codeable_concept('http://snomed.info/sct', '42035005', 'Bisexual state'),
+        create_codeable_concept('http://terminology.hl7.org/CodeSystem/v3-NullFlavor', 'OTH', 'Other'),
+        create_codeable_concept('http://terminology.hl7.org/CodeSystem/v3-NullFlavor', 'UNK', 'Unknown'),
+        create_codeable_concept('http://terminology.hl7.org/CodeSystem/v3-NullFlavor', 'ASKU', 'Asked but no answer')
+      ]
       puts '  - Preprocessing PRAPARE Observations...'
       error('    *** TBD Fix QuestionnaireResponse LinkIds for PRAPARE... ***')
       prapare_count = 0
       results.each do |bundle|
         next if bundle.entry.first.resource.resourceType != 'Patient' # skip bundles of Organizations and Practitioners...
         provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
+        sexual_orientation = sexual_orientation_codes.sample
         bundle.entry.each do |entry|
           next unless entry.resource.resourceType == 'Observation'
           category = entry.resource.category&.first&.coding&.first&.code
           code = entry.resource.code&.coding&.first&.code
           if code == '93025-5' # PRAPARE Multi-Observation
             # Create a QuestionnaireResponse
-            questionnaireResponse = create_questionnaire_response_from_multiobservation(entry.resource)
+            questionnaireResponse, serviceRequest = create_questionnaire_response_from_multiobservation(entry.resource)
             questionnaireResponseReference = FHIR::Reference.new
             questionnaireResponseReference.reference = "urn:uuid:#{questionnaireResponse.id}"
             provenance.target << questionnaireResponseReference
             bundle.entry << create_bundle_entry(questionnaireResponse)
+            if serviceRequest
+              serviceRequestReference = FHIR::Reference.new
+              serviceRequestReference.reference = "urn:uuid:#{serviceRequest.id}"
+              provenance.target << serviceRequestReference
+              bundle.entry << create_bundle_entry(serviceRequest)
+            end
 
             entry.resource.meta = FHIR::Meta.new
             entry.resource.meta.profile = [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-sdoh-assessment' ]
@@ -587,10 +779,40 @@ module DataScript
               bundle.entry << create_bundle_entry(instance)
             end
             prapare_count += 1
+
+            # add a sexual orientation observation to the same encounter the PRAPARE questionnaire was administered...
+            sexual_orientation_obs = FHIR::Observation.new({
+              id: SecureRandom.uuid,
+              meta: { profile: [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-sexual-orientation' ] },
+              category: [{ coding: [{
+                system: 'http://hl7.org/fhir/us/core/CodeSystem/us-core-observation-category',
+                code: 'social-history',
+                display: 'Social History'
+              }]}],
+              code: { coding: [{
+                system: 'http://loinc.org',
+                code: '76690-7',
+                display: 'Sexual orientation'
+              }]},
+              subject: entry.resource.subject,
+              encounter: entry.resource.encounter,
+              status: 'final',
+              effectiveDateTime: entry.resource.effectiveDateTime,
+              valueCodeableConcept: sexual_orientation
+            })
+            sexual_orientation_reference = FHIR::Reference.new
+            sexual_orientation_reference.reference = "urn:uuid:#{sexual_orientation_obs.id}"
+            provenance.target << sexual_orientation_reference
+            bundle.entry << create_bundle_entry(sexual_orientation_obs)
           end
         end
       end
-      puts "    - Rewrote #{prapare_count} PRAPARE Observations..."
+      if prapare_count >  0
+        puts "    - Rewrote #{prapare_count} PRAPARE Observations..."
+      else
+        error('    * Rewrote 0 PRAPARE Observations.')
+      end
+
       puts '  - Rewriting Observation Profiles for v5...'
       obs_profiles = Hash.new(0)
       results.each do |bundle|
@@ -765,6 +987,12 @@ module DataScript
       selection
     end
 
+    def self.get_resource_by_id(bundle, id)
+      entry = bundle.entry.find { |entry| entry.resource.id == id || entry.fullUrl == id }
+      return entry.resource if entry
+      nil
+    end
+
     def self.remove_name(bundle)
       # Replace name with empty name.
       # Technically this doesn't validate because of us-core-8:
@@ -930,6 +1158,7 @@ module DataScript
     end
 
     def self.create_questionnaire_response_from_multiobservation(observation)
+      serviceRequest = nil
       questionnaireResponse = FHIR::QuestionnaireResponse.new
       questionnaireResponse.id = SecureRandom.uuid
       questionnaireResponse.meta = FHIR::Meta.new
@@ -953,11 +1182,34 @@ module DataScript
           questionnaireResponse.item.last.answer.last.valueQuantity = component.valueQuantity
         elsif component.valueCodeableConcept
           questionnaireResponse.item.last.answer.last.valueCoding = component.valueCodeableConcept.coding.first
+          # create a service request is this for food....
+          if component.valueCodeableConcept.coding.first.code == 'LA30125-1' # Food
+            serviceRequest = FHIR::ServiceRequest.new({
+              id: SecureRandom.uuid,
+              meta: { profile: [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-servicerequest' ] },
+              category: [{ coding: [{
+                system: 'http://hl7.org/fhir/us/core/CodeSystem/us-core-tags',
+                code: 'sdoh',
+                display: 'SDOH'
+              }], text: 'Social Determinants Of Health'}],
+              code: { coding: [{
+                system: 'http://snomed.info/sct',
+                code: '467771000124109',
+                display: 'Assistance with application for food pantry program'
+              }]},
+              subject: observation.subject,
+              encounter: observation.encounter,
+              status: 'completed',
+              intent: 'order',
+              occurrenceDateTime: observation.issued,
+              authoredOn: observation.issued
+            })
+          end
         elsif component.valueString
           questionnaireResponse.item.last.answer.last.valueString = component.valueString
         end
       end
-      questionnaireResponse
+      [questionnaireResponse, serviceRequest]
     end
   end
 end

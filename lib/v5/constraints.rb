@@ -21,7 +21,8 @@ module DataScript
       'one_practitioner' => lambda {|results| results.any? {|bundle| has(bundle, FHIR::Practitioner) }},
       'observation_code' => lambda {|results| results.any? {|bundle| bundle.entry.any? {|entry| entry.resource.resourceType == 'Observation' && !entry.resource.valueCodeableConcept.nil?} }},
       'observation_quantity' => lambda {|results| results.any? {|bundle| bundle.entry.any? {|entry| entry.resource.resourceType == 'Observation' && !entry.resource.valueQuantity.nil?} }},
-      'observation_string' => lambda {|results| results.any? {|bundle| bundle.entry.any? {|entry| entry.resource.resourceType == 'Observation' && !entry.resource.valueString.nil?} }}
+      'observation_string' => lambda {|results| results.any? {|bundle| bundle.entry.any? {|entry| entry.resource.resourceType == 'Observation' && !entry.resource.valueString.nil?} }},
+      'one_imaging_study' => lambda {|results| results.any? {|bundle| has(bundle, FHIR::ImagingStudy) }}
     }
 
     CONSTRAINTS_MRBURNS = {
@@ -79,7 +80,7 @@ module DataScript
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-survey',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-sdoh-assessment',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-smokingstatus',
-      'http://hl7.org/fhir/us/core/StructureDefinition/us-core-vital-signs',
+      #'http://hl7.org/fhir/us/core/StructureDefinition/us-core-vital-signs', # vital-signs is essentially an abstract profile...
       'http://hl7.org/fhir/us/core/StructureDefinition/head-occipital-frontal-circumference-percentile',
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-blood-pressure', #'http://hl7.org/fhir/StructureDefinition/bp'
       'http://hl7.org/fhir/us/core/StructureDefinition/us-core-bmi', #'http://hl7.org/fhir/StructureDefinition/bmi',
