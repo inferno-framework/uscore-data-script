@@ -70,11 +70,6 @@ module DataScript
       #     next unless count >= DESIRED_MAX
 
       #     deleted_ids = []
-      #     dr_observations = get_diagreport_referenced_observations(bundle)
-      #     dr_notes = get_docref_referenced_attachments(bundle)
-      #     encounter_refs = get_referenced_encounters(bundle)
-      #     reason_refs = get_referenced_reasons(bundle)
-      #     addresses_refs = get_addresses(bundle)
       #     medication_refs = get_medreqs_with_med_references(bundle)
       #     references = (dr_observations + dr_notes + encounter_refs + reason_refs + addresses_refs + medication_refs).compact.uniq
       #     bundle.entry.find_all { |e| e.resource.resourceType == type }.shuffle(random: rng).each do |e|
@@ -1116,80 +1111,6 @@ module DataScript
       entry.request.local_method = 'POST'
       entry.request.url = resource.resourceType
       entry
-    end
-
-    def self.get_reference_type(bundle, reference_string)
-      # reference_string will be in a format like:
-      # urn:uuid:1234-abcd-1234-abcd
-      # So splitting on `:` and taking last gets us just the UUID
-      # which is also the ID of the referenced resource
-      id = reference_string.split(':').last
-      bundle.entry.find { |e| e.resource.id == id }&.resource&.class
-    end
-
-    def self.get_resource_counts(bundle)
-      resource_counts = bundle.entry.each_with_object({}) do |entry, rc|
-        resource_type = entry.resource.resourceType
-        if rc[resource_type]
-          rc[resource_type] += 1
-        else
-          rc[resource_type] = 1
-        end
-      end.sort
-      # Move DocumentReferences to the front, so we delete them first (and don't have reference issues)
-      resource_counts.insert(0, resource_counts.delete(resource_counts.find { |resource_name, _| resource_name == 'DocumentReference' }))
-      # Move Encounters to the end, so we know which ones are safe to delete
-      resource_counts.append(resource_counts.delete(resource_counts.find { |resource_name, _| resource_name == 'Encounter' }))
-      resource_counts
-    end
-
-    def self.get_diagreport_referenced_observations(bundle)
-      bundle.entry.flat_map do |entry|
-        next unless entry.resource.is_a? FHIR::DiagnosticReport
-        entry.resource.result.map { |r| r&.reference&.split(':')&.last }
-      end.uniq.compact
-    end
-
-    def self.get_docref_referenced_attachments(bundle)
-      docrefs = bundle.entry.find_all { |e| e.resource.is_a? FHIR::DocumentReference}
-      docrefs.map do |docref|
-        bundle.entry.reverse.find { |e|
-          e&.resource&.resourceType == 'DiagnosticReport' &&
-            e&.resource&.presentedForm&.first&.data &&
-            e&.resource&.presentedForm&.first&.data == docref&.resource&.content&.first&.attachment&.data }&.resource&.id
-      end.uniq
-    end
-
-    def self.get_referenced_encounters(bundle)
-      bundle.entry.map do |e|
-        e.resource&.encounter&.reference&.split(':')&.last if e.resource.respond_to? :encounter
-      end.compact.uniq
-    end
-
-    def self.get_referenced_reasons(bundle)
-      bundle.entry.flat_map do |e|
-        e.resource&.reasonReference&.map { |r| r.reference.split(':')&.last } if e.resource.respond_to? :reasonReference
-      end.compact.uniq
-    end
-
-    def self.get_addresses(bundle)
-      bundle.entry.flat_map do |e|
-        e.resource&.addresses&.map { |r| r.reference.split(':')&.last } if e.resource.respond_to? :addresses
-      end.compact.uniq
-    end
-
-    def self.get_medreqs_with_med_references(bundle)
-      bundle.entry.select { |e| e.resource.is_a? FHIR::MedicationRequest }.flat_map do |e|
-        if e.resource&.medicationReference
-          [e.resource.id, e&.resource&.medicationReference&.reference&.split(':')&.last]
-        end
-      end.compact.uniq
-    end
-
-    def self.remove_provenance_targets(ids, provenance)
-      ids.each do |id|
-        provenance.target.delete_if { |target| target.id == id }
-      end
     end
 
     def self.create_questionnaire_response_from_multiobservation(observation)

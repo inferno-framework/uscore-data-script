@@ -628,15 +628,6 @@ module DataScript
       entry
     end
 
-    def self.get_reference_type(bundle, reference_string)
-      # reference_string will be in a format like:
-      # urn:uuid:1234-abcd-1234-abcd
-      # So splitting on `:` and taking last gets us just the UUID
-      # which is also the ID of the referenced resource
-      id = reference_string.split(':').last
-      bundle.entry.find { |e| e.resource.id == id }&.resource&.class
-    end
-
     def self.get_resource_counts(bundle)
       resource_counts = bundle.entry.each_with_object({}) do |entry, rc|
         resource_type = entry.resource.resourceType
