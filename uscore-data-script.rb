@@ -3,6 +3,7 @@ require 'fhir_models'
 require 'fileutils'
 require './lib/time.rb'
 require './lib/bulk_data_converter.rb'
+require './lib/filter.rb'
 
 RAND_SEED = 3
 
@@ -222,6 +223,26 @@ tik = Time.now.to_i
 puts "  Modified patients (#{DataScript::TimeUtilities.pretty(tik - tok)})."
 group = selections.pop
 
+puts 'Prefilter constraint testing...'
+if constraints.satisfied?(selections)
+  puts '  All constraints satisfied.'
+else
+  error("  #{constraints.violations.length} remaining constraints violated: #{constraints.violations}")
+end
+profiles_present = constraints.profiles_present(selections)
+profiles_missing = DataScript::Constraints::REQUIRED_PROFILES - profiles_present
+if profiles_missing.empty?
+  puts '  All profiles present.'
+else
+  error("  Missing #{profiles_missing.length} profiles:")
+  profiles_missing.each {|p| error("    * #{p}")}
+end
+
+puts 'Filtering selected patient data...'
+DataScript::Filter.filter!(selections)
+tok = Time.now.to_i
+puts "  Filtered data (#{DataScript::TimeUtilities.pretty(tok - tik)})."
+
 puts 'Final constraint testing...'
 if constraints.satisfied?(selections)
   puts '  All constraints satisfied.'
@@ -234,7 +255,7 @@ if profiles_missing.empty?
   puts '  All profiles present.'
 else
   error("  Missing #{profiles_missing.length} profiles:")
-  profiles_missing.each {|p| error("    - #{p}")}
+  profiles_missing.each {|p| error("    * #{p}")}
 end
 
 # Add the Group back

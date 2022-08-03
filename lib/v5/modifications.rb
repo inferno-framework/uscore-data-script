@@ -10,10 +10,16 @@ require 'time'
 module DataScript
   class Modifications
     DESIRED_MAX = 20
-    SDOH_CONDITIONS = ['160701002','224355006','32911000','105531004','5251000175109','224295006','224299000','73438004','160904001','741062008','160903007','713458007','266934004','422650009','423315002','266948004','446654005','424393004','706893006']
-    SDOH_OBSERVATIONS = ['32624-9','54899-0','56051-6','56799-0','63512-8','63586-2','67875-5','76437-3','76501-6','82589-3','93025-5','93026-3','93027-1','93028-9','93029-7','93030-5','93031-3','93033-9','93034-7','93035-4','93038-8']
-    SURVEY_OBSERVATIONS = ['44249-1','44261-6','55757-9','55758-7','59453-1','59460-6','59461-4','69737-5','70274-6','76499-3','76504-0','89204-2','89206-7']
+    # SOCIAL HISTORY are SDOH related, but not captured in SURVEYS like PRAPARE
+    # These are SNOMED codes
+    SDOH_CONDITIONS = ['105531004','10939881000119100','160701002','160903007','160904001','160968000','224295006','224299000','224355006','266934004','266948004','32911000','361055000','422650009','423315002','424393004','446654005','5251000175109','706893006','713458007','73438004','73595000','741062008']
     CLINICAL_TEST_OBSERVATIONS = ['44963-7']
+
+    # SURVEY is for surveys and screenings that are NOT SDOH related
+    SURVEY_OBSERVATIONS = ['44249-1','44261-6','55757-9','55758-7','59453-1','59460-6','59461-4','61576-5','62337-1','69737-5','70274-6','71933-6','71934-4','71956-7','71958-3','71960-9','71962-5','71964-1','71966-6','71968-2','71970-8','71972-4','71973-2','71974-0','71975-7','71976-5','71977-3','71978-1','71979-9','71980-7','72009-4','72010-2','72011-0','72012-8','72013-6','72014-4','72015-1','72016-9','72091-2','72092-0','72093-8','72094-6','72095-3','72096-1','72097-9','72098-7','72099-5','72100-1','72101-9','72102-7','72109-2','75626-2','76499-3','76504-0','82666-9','82667-7','89204-2','89206-7']
+    # SDOH ASSESSMENTS include thiings like PRAPARE and other HRSN screenings.
+    # There are 47 specific codes in the ValueSet expansion...
+    SDOH_ASSESSMENT_OBSERVATIONS = ['93028-9','93025-5','69861-3','93027-1','81375-8','93034-7','68516-4','96782-8','93029-7','68517-2','96842-0','88123-5','76501-6','95618-5','93038-8','69858-9','93159-2','96780-2','44250-9','68524-8','88121-9','93026-3','82589-3','89555-7','96781-0','95530-2','56799-0','63586-2','96779-4','93677-3','63512-8','76437-3','88124-3','32624-9','97023-6','93035-4','54899-0','93033-9','93031-3','56051-6','88122-7','93030-5','97027-7','71802-3','44255-8','67875-5','76513-1']
 
     def self.modify!(results, random_seed = 3)
       FHIR.logger.level = :info
@@ -201,7 +207,7 @@ module DataScript
         related_person_for_careteam += 1
       end
       if related_person_for_careteam > 0
-        puts ("  - Generated #{related_person_for_careteam} service requests for CareTeams.")
+        puts ("  - Generated #{related_person_for_careteam} RelatedPerson for CareTeams.")
       else
         error("    * Unable to find a CareTeam to add a RelatedPerson into.")
       end
@@ -270,8 +276,11 @@ module DataScript
       puts "  - Altered Condition:  #{selection_conditions.entry.first.resource.id}"
 
       puts '  - Rewriting Condition Profiles for v5...'
+      social_history_obs_inserted = 0
       this_or_that = true
       results.each do |bundle|
+        next if bundle.entry.first.resource.resourceType != 'Patient' # skip bundles of Organizations and Practitioners...
+        provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
         bundle.entry.each do |entry|
           next unless entry.resource.resourceType == 'Condition'
           category = entry.resource.category&.first&.coding&.first&.code
@@ -285,12 +294,39 @@ module DataScript
             end
             this_or_that = !this_or_that
             entry.resource.category << create_codeable_concept('http://hl7.org/fhir/us/core/CodeSystem/us-core-tags', 'sdoh', 'SDOH')
+
+            # Also make an social-history observation for this finding...
+            social_history_obs = FHIR::Observation.new({
+              id: SecureRandom.uuid,
+              meta: { profile: [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-social-history' ] },
+              category: [{ coding: [{
+                system: 'http://hl7.org/fhir/us/core/CodeSystem/us-core-observation-category',
+                code: 'social-history',
+                display: 'Social History'
+              }]},{ coding: [{
+                system: 'http://hl7.org/fhir/us/core/CodeSystem/us-core-tags',
+                code: 'sdoh',
+                display: 'SDOH'
+              }]}],
+              code: entry.resource.code,
+              subject: entry.resource.subject,
+              encounter: entry.resource.encounter,
+              status: 'final',
+              effectiveDateTime: entry.resource.onsetDateTime,
+              valueBoolean: true
+            })
+            social_history_obs_reference = FHIR::Reference.new
+            social_history_obs_reference.reference = "urn:uuid:#{social_history_obs.id}"
+            provenance.target << social_history_obs_reference
+            bundle.entry << create_bundle_entry(social_history_obs)
+            social_history_obs_inserted += 1
           elsif category == 'encounter-diagnosis'
             entry.resource.meta.profile[0] = 'http://hl7.org/fhir/us/core//StructureDefinition/us-core-condition-encounter-diagnosis'
           end
           entry.resource.extension << asserted_date(entry.resource.recordedDate)
         end
       end
+      puts ("    - Added #{social_history_obs_inserted} social-history observations based on SNOMED codes.")
 
       # select someone with the most numerous gender
       # from the people remaining, and remove their name
@@ -829,12 +865,11 @@ module DataScript
             entry.resource.meta.profile = [ profile ]
             entry.resource.category = [ create_codeable_concept('http://terminology.hl7.org/CodeSystem/observation-category','survey','Survey') ]
             obs_profiles[profile] += 1
-          elsif SDOH_OBSERVATIONS.include?(code)
-            profile = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-social-history'
+          elsif SDOH_ASSESSMENT_OBSERVATIONS.include?(code)
+            profile = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-sdoh-assessment'
             entry.resource.meta = FHIR::Meta.new
             entry.resource.meta.profile = [ profile ]
-            entry.resource.category = [ create_codeable_concept('http://terminology.hl7.org/CodeSystem/observation-category', 'social-history', 'Social History') ]
-            entry.resource.category << create_codeable_concept('http://hl7.org/fhir/us/core/CodeSystem/us-core-tags', 'sdoh', 'SDOH')
+            entry.resource.category = [ create_codeable_concept('http://hl7.org/fhir/us/core/CodeSystem/us-core-tags', 'sdoh', 'SDOH') ]
             obs_profiles[profile] += 1
           elsif category == 'survey'
             # catch any remaining survey obs that weren't SDOH related...
