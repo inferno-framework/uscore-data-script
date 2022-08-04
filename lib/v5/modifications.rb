@@ -663,7 +663,7 @@ module DataScript
               code: '363679005',
               display: 'Imaging'
             }]}],
-            code: entry.resource.procedureCode,
+            code: entry.resource.procedureCode.first,
             subject: entry.resource.subject,
             encounter: entry.resource.encounter,
             requester: encounter&.participant&.first&.individual,

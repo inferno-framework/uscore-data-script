@@ -16,7 +16,8 @@ module DataScript
         resources_to_keep = []
 
         bundle.entry.reverse.each do |entry|
-          next unless ['Device','Encounter','Goal','RelatedPerson'].include?(entry.resource.resourceType)
+          next unless ['AllergyIntolerance','Device','Encounter','Goal','RelatedPerson'].include?(entry.resource.resourceType)
+          # start by looking at Encounters, most but not all resources reference the Encounter...
           if entry.resource.resourceType == 'Encounter'
             print '.'
             encounter_resources = get_resources_associated_with_encounter(bundle, entry.fullUrl)
@@ -26,6 +27,14 @@ module DataScript
               profile_coverage.uniq!
               encounters_to_keep << entry.resource
               resources_to_keep.append(encounter_resources).flatten!
+            end
+          elsif entry.resource.resourceType == 'AllergyIntolerance' # allergyintolerance is special because it does not reference an encounter
+            print 'a'
+            resource_profile = entry.resource&.meta&.profile&.first
+            if resource_profile == 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-allergyintolerance'
+              resources_to_keep << entry.resource
+              profile_coverage.append(resource_profile).flatten!
+              profile_coverage.uniq!
             end
           elsif entry.resource.resourceType == 'Device' # device is special because it does not reference an encounter
             print 'd'

@@ -271,9 +271,14 @@ end
 tik = Time.now.to_i
 output_data = 'output/data'
 output_validation = 'output/validation'
+
 puts "Overwriting selections into ./#{output_data}"
 Dir.mkdir(output_data) unless File.exists?(output_data)
 FileUtils.rm Dir.glob("./#{output_data}/*.json")
+
+Dir.mkdir(output_validation) unless File.exists?(output_validation)
+FileUtils.rm Dir.glob("./#{output_validation}/*.txt")
+
 selections.each do |bundle|
   if bundle.resourceType == 'Bundle'
     id = bundle.entry.first.resource.id
@@ -356,10 +361,7 @@ end
 
 # Validating
 tik = Time.now.to_i
-output_validation = 'output/validation'
 puts "Validating... Output logged in ./#{output_validation}"
-Dir.mkdir(output_validation) unless File.exists?(output_validation)
-FileUtils.rm Dir.glob("./#{output_validation}/*.txt")
 selections.each do |bundle|
   if bundle.resourceType == 'Bundle'
     id = bundle.entry.first.resource.id
