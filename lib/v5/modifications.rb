@@ -162,7 +162,7 @@ module DataScript
       results.each do |bundle|
         next if bundle.entry.first.resource.resourceType != 'Patient' # skip bundles of Organizations and Practitioners...
         provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
-        careteam = bundle.entry.find { |e| e.resource.is_a? FHIR::CareTeam }.resource
+        careteam = bundle.entry.find { |e| e.resource.is_a? FHIR::CareTeam }&.resource
         next if careteam.nil?
         # Add a RelatedPerson
         related_person = FHIR::RelatedPerson.new({

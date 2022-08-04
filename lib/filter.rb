@@ -16,14 +16,41 @@ module DataScript
         resources_to_keep = []
 
         bundle.entry.reverse.each do |entry|
-          next unless entry.resource.resourceType == 'Encounter'
-          print '.'
-          encounter_resources = get_resources_associated_with_encounter(bundle, entry.fullUrl)
-          encounter_resources_profiles = encounter_resources.map {|resource| resource&.meta&.profile&.first}.compact
-          if encounter_resources_profiles.any? {|p| !profile_coverage.include?(p) }
-            profile_coverage.append(encounter_resources_profiles).flatten!.uniq!
-            encounters_to_keep << entry.resource
-            resources_to_keep.append(encounter_resources).flatten!
+          next unless ['Device','Encounter','Goal','RelatedPerson'].include?(entry.resource.resourceType)
+          if entry.resource.resourceType == 'Encounter'
+            print '.'
+            encounter_resources = get_resources_associated_with_encounter(bundle, entry.fullUrl)
+            encounter_resources_profiles = encounter_resources.map {|resource| resource&.meta&.profile&.first}.compact
+            if encounter_resources_profiles.any? {|p| !profile_coverage.include?(p) }
+              profile_coverage.append(encounter_resources_profiles).flatten!
+              profile_coverage.uniq!
+              encounters_to_keep << entry.resource
+              resources_to_keep.append(encounter_resources).flatten!
+            end
+          elsif entry.resource.resourceType == 'Device' # device is special because it does not reference an encounter
+            print 'd'
+            resource_profile = entry.resource&.meta&.profile&.first
+            if resource_profile == 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-implantable-device'
+              resources_to_keep << entry.resource
+              profile_coverage.append(resource_profile).flatten!
+              profile_coverage.uniq!
+            end
+          elsif entry.resource.resourceType == 'Goal' # goal is special because it does not reference an encounter
+            print 'g'
+            resource_profile = entry.resource&.meta&.profile&.first
+            if resource_profile == 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-goal'
+              resources_to_keep << entry.resource
+              profile_coverage.append(resource_profile).flatten!
+              profile_coverage.uniq!
+            end
+          elsif entry.resource.resourceType == 'RelatedPerson' # relatedperson is special because it does not reference anything
+            print 'r'
+            resource_profile = entry.resource&.meta&.profile&.first
+            if resource_profile == 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-relatedperson'
+              resources_to_keep << entry.resource
+              profile_coverage.append(resource_profile).flatten!
+              profile_coverage.uniq!
+            end
           end
         end
         print "\n"
