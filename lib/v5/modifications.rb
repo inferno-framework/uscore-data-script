@@ -295,7 +295,7 @@ module DataScript
               id: SecureRandom.uuid,
               meta: { profile: [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-social-history' ] },
               category: [{ coding: [{
-                system: 'http://hl7.org/fhir/us/core/CodeSystem/us-core-observation-category',
+                system: 'http://terminology.hl7.org/CodeSystem/observation-category',
                 code: 'social-history',
                 display: 'Social History'
               }]},{ coding: [{
@@ -755,7 +755,6 @@ module DataScript
         create_codeable_concept('http://terminology.hl7.org/CodeSystem/v3-NullFlavor', 'ASKU', 'Asked but no answer')
       ]
       puts '  - Preprocessing PRAPARE Observations...'
-      error('    *** TBD Fix QuestionnaireResponse LinkIds for PRAPARE... ***')
       prapare_count = 0
       results.each do |bundle|
         next if bundle.entry.first.resource.resourceType != 'Patient' # skip bundles of Organizations and Practitioners...
@@ -794,8 +793,8 @@ module DataScript
               instance.category = [ create_codeable_concept('http://terminology.hl7.org/CodeSystem/observation-category','survey','Survey') ]
               instance.category << create_codeable_concept('http://hl7.org/fhir/us/core/CodeSystem/us-core-tags', 'sdoh', 'SDOH')
               instance.code = component.code
-              instance.derivedFrom = FHIR::Reference.new
-              instance.derivedFrom.reference = entry.fullUrl
+              instance.derivedFrom = [ FHIR::Reference.new ]
+              instance.derivedFrom.first.reference = entry.fullUrl
               if component.valueQuantity
                 instance.valueQuantity = component.valueQuantity
               elsif component.valueString
@@ -816,7 +815,7 @@ module DataScript
               id: SecureRandom.uuid,
               meta: { profile: [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-sexual-orientation' ] },
               category: [{ coding: [{
-                system: 'http://hl7.org/fhir/us/core/CodeSystem/us-core-observation-category',
+                system: 'http://terminology.hl7.org/CodeSystem/observation-category',
                 code: 'social-history',
                 display: 'Social History'
               }]}],
@@ -1113,8 +1112,18 @@ module DataScript
       entry
     end
 
+    PRAPARE_STRUCTURE = {
+      '93025-5' => {
+        '93043-8' => ['56051-6','32624-9','93035-4','93034-7','54899-0'],
+        '93042-0'  => ['63512-8','71802-3','93033-9','56799-0'],
+        '93041-2' => ['82589-3','67875-5','76437-3','63586-2','93031-3','93030-5'],
+        '93040-4' => ['93029-7','93038-8'],
+        '93039-6' => ['93028-9','93027-1','93026-3','76501-6']
+      }
+    }
+
     def self.create_questionnaire_response_from_multiobservation(observation)
-      serviceRequest = nil
+      serviceRequests = nil
       questionnaireResponse = FHIR::QuestionnaireResponse.new
       questionnaireResponse.id = SecureRandom.uuid
       questionnaireResponse.meta = FHIR::Meta.new
@@ -1123,49 +1132,84 @@ module DataScript
       questionnaireResponse.meta.tag.last.code = 'sdoh'
       questionnaireResponse.meta.tag.last.display = 'SDOH'
       questionnaireResponse.meta.tag.last.system = 'http://hl7.org/fhir/us/core/CodeSystem/us-core-tags'
-      questionnaireResponse.questionnaire = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-extension-questionnaire-uri'
+      questionnaireResponse.questionnaire = 'http://hl7.org/fhir/us/sdoh-clinicalcare/Questionnaire/SDOHCC-QuestionnairePRAPARE'
+      # TODO primitive extensiion 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-extension-questionnaire-uri'
       questionnaireResponse.status = 'completed'
       questionnaireResponse.subject = observation.subject
       questionnaireResponse.encounter = observation.encounter
       questionnaireResponse.authored = observation.issued
-      questionnaireResponse.item = []
-      observation.component.each do |component|
-        questionnaireResponse.item << FHIR::QuestionnaireResponse::Item.new
-        questionnaireResponse.item.last.linkId = "/#{component.code.coding.first.code}"
-        questionnaireResponse.item.last.text = component.code.text
-        questionnaireResponse.item.last.answer = [ FHIR::QuestionnaireResponse::Item::Answer.new ]
-        if component.valueQuantity
-          questionnaireResponse.item.last.answer.last.valueQuantity = component.valueQuantity
-        elsif component.valueCodeableConcept
-          questionnaireResponse.item.last.answer.last.valueCoding = component.valueCodeableConcept.coding.first
-          # create a service request is this for food....
-          if component.valueCodeableConcept.coding.first.code == 'LA30125-1' # Food
-            serviceRequest = FHIR::ServiceRequest.new({
-              id: SecureRandom.uuid,
-              meta: { profile: [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-servicerequest' ] },
-              category: [{ coding: [{
-                system: 'http://hl7.org/fhir/us/core/CodeSystem/us-core-tags',
-                code: 'sdoh',
-                display: 'SDOH'
-              }], text: 'Social Determinants Of Health'}],
-              code: { coding: [{
-                system: 'http://snomed.info/sct',
-                code: '467771000124109',
-                display: 'Assistance with application for food pantry program'
-              }]},
-              subject: observation.subject,
-              encounter: observation.encounter,
-              status: 'completed',
-              intent: 'order',
-              occurrenceDateTime: observation.issued,
-              authoredOn: observation.issued
-            })
-          end
-        elsif component.valueString
-          questionnaireResponse.item.last.answer.last.valueString = component.valueString
+      results = process_prapare_structure(PRAPARE_STRUCTURE, observation)
+      questionnaireResponse.item = results.first
+      serviceRequests = results.last&.first
+      [questionnaireResponse, serviceRequests]
+    end
+
+    def self.process_prapare_structure(structure, observation, prefix=nil)
+      items = []
+      serviceRequests = []
+      if structure.is_a?(Hash)
+        structure.each do |key,value|
+          item = FHIR::QuestionnaireResponse::Item.new
+          item.linkId = "#{prefix}/#{key}"
+          component = observation.component.find {|c| c.code.coding.first.code == key}
+          item.text = component.code.text if component
+          prefix = value.is_a?(Array) ? "/#{key}" : nil
+          results = process_prapare_structure(value, observation, prefix)
+          item.item = results.first
+          serviceRequests.append(results.last).flatten!
+          items << item
+        end
+      elsif structure.is_a?(Array)
+        structure.each do |key|
+          item = FHIR::QuestionnaireResponse::Item.new
+          item.linkId = "#{prefix}/#{key}"
+          component = observation.component.find {|c| c.code.coding.first.code == key}
+          item.text = component.code.text if component
+          result = convert_obs_value_questionnaire_answer(component, observation)
+          item.answer = [ result.first ]
+          items << item
+          serviceRequest = result.last
+          serviceRequests << result.last unless result.last.nil?
         end
       end
-      [questionnaireResponse, serviceRequest]
+      return items, serviceRequests
     end
+
+    def self.convert_obs_value_questionnaire_answer(component, observation)
+      answer = FHIR::QuestionnaireResponse::Item::Answer.new
+      serviceRequest = nil
+      if component.valueQuantity
+        answer.valueQuantity = component.valueQuantity
+      elsif component.valueCodeableConcept
+        answer.valueCoding = component.valueCodeableConcept.coding.first
+        # create a service request is this for food....
+        if component.valueCodeableConcept.coding.first.code == 'LA30125-1' # Food
+          serviceRequest = FHIR::ServiceRequest.new({
+            id: SecureRandom.uuid,
+            meta: { profile: [ 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-servicerequest' ] },
+            category: [{ coding: [{
+              system: 'http://hl7.org/fhir/us/core/CodeSystem/us-core-tags',
+              code: 'sdoh',
+              display: 'SDOH'
+            }], text: 'Social Determinants Of Health'}],
+            code: { coding: [{
+              system: 'http://snomed.info/sct',
+              code: '467771000124109',
+              display: 'Assistance with application for food pantry program'
+            }]},
+            subject: observation.subject,
+            encounter: observation.encounter,
+            status: 'completed',
+            intent: 'order',
+            occurrenceDateTime: observation.issued,
+            authoredOn: observation.issued
+          })
+        end
+      elsif component.valueString
+        answer.valueString = component.valueString
+      end
+      return answer, serviceRequest
+    end
+
   end
 end

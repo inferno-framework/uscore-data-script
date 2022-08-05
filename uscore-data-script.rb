@@ -64,7 +64,7 @@ def validate(filename, validation_file)
   uscore_ver = '3.1.1'
   uscore_ver = '4.0.0' if VERSION == 4
   uscore_ver = '5.0.1' if VERSION == 5
-  system( "java -jar lib/validator_cli.jar #{filename} -sct us -version 4.0.1 -ig hl7.fhir.us.core##{uscore_ver} > #{validation_file}" )
+  system( "java -jar lib/validator_cli.jar #{filename} -sct us -version 4.0.1 -ig hl7.fhir.us.core##{uscore_ver} > #{validation_file} 2>&1" )
 
   if VERSION == 5
     logfile = File.open(validation_file, 'r:UTF-8')
