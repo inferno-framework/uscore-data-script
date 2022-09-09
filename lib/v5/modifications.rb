@@ -267,8 +267,8 @@ module DataScript
       end
       # select the person with the most Conditions
       selection_conditions = results.last
-      alter_condition(selection_conditions, rng)
-      puts "  - Altered Condition:  #{selection_conditions.entry.first.resource.id}"
+      altered = alter_condition(selection_conditions, rng)
+      puts "  - Altered Condition:  #{altered.id}"
 
       puts '  - Rewriting Condition Profiles for v5...'
       social_history_obs_inserted = 0
@@ -994,9 +994,6 @@ module DataScript
         dr.performer << { reference: "Organization?identifier=#{dr_organization.system}|#{dr_organization.value}" }
       end
 
-      # Add Group
-      results << create_group(results)
-
       # The JSON from this exported patient will need to be manually altered to
       # create primitive extensions, so we specifically return just this patient bundle.
       selection_name
@@ -1042,6 +1039,7 @@ module DataScript
       unknown = FHIR::CodeableConcept.new
       unknown.extension = [ data_absent_reason ]
       random_condition.category = [ unknown ]
+      random_condition
     end
 
     def self.data_absent_reason
@@ -1068,27 +1066,6 @@ module DataScript
       smoker.coding = [ coding ]
       smoker.text = 'Current every day smoker'
       last_smoking_observation.valueCodeableConcept = smoker
-    end
-
-    def self.create_group(results)
-      group = FHIR::Group.new
-      group.id = SecureRandom.uuid
-      group.identifier = [ FHIR::Identifier.new ]
-      group.identifier.first.system = 'urn:ietf:rfc:3986'
-      group.identifier.first.value = "urn:uuid:#{group.id}"
-      group.active = true
-      group.type = 'person'
-      group.actual = true
-      group.name = 'Synthea US Core Patients'
-      group.quantity = results.length
-      group.member = []
-      results.each do |bundle|
-        group_member = FHIR::Group::Member.new
-        group_member.entity = FHIR::Reference.new
-        group_member.entity.reference = bundle.entry.first.fullUrl
-        group.member << group_member
-      end
-      group
     end
 
     def self.create_codeable_concept(system, code, display)

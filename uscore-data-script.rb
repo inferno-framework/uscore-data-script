@@ -221,7 +221,6 @@ puts 'Modifying selected patients...'
 patient_bundle_absent_name = DataScript::Modifications.modify!(selections, RAND_SEED)
 tik = Time.now.to_i
 puts "  Modified patients (#{DataScript::TimeUtilities.pretty(tik - tok)})."
-group = selections.pop
 
 puts 'Prefilter constraint testing...'
 if constraints.satisfied?(selections)
@@ -258,7 +257,8 @@ else
   profiles_missing.each {|p| error("    * #{p}")}
 end
 
-# Add the Group back
+# Add the final Group
+group = DataScript::Filter.create_group(selections)
 selections << group
 # Remove the patient with primitive extensions
 # because we need to write out their JSON separately.
