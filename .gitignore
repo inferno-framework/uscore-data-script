@@ -1,3 +1,4 @@
 # Mac OS X FS Junk
 **/.DS_Store
 output/
+lib/validator_cli.jar

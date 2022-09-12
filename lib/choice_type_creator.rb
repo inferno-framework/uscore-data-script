@@ -10,52 +10,8 @@ module DataScript
   # automatically generate.
   class ChoiceTypeCreator
     SWAP_COUNT = 1
-    MUST_SUPPORT_CHOICE_TYPES = {
-      FHIR::DiagnosticReport =>
-      {
-        prefix: 'effective',
-        suffixes: %w[DateTime Period],
-        profiles: [
-          'http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-note',
-          'http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab'
-        ]
-      },
-      FHIR::Immunization =>
-      {
-        prefix: 'occurrence',
-        suffixes: %w[DateTime String],
-        profiles: [
-          'http://hl7.org/fhir/us/core/StructureDefinition/us-core-immunization'
-        ]
-      },
-      FHIR::Observation =>
-      {
-        prefix: 'effective',
-        suffixes: %w[DateTime Period],
-        profiles: [
-          'http://hl7.org/fhir/StructureDefinition/resprate',
-          'http://hl7.org/fhir/StructureDefinition/heartrate',
-          'http://hl7.org/fhir/StructureDefinition/bodyweight',
-          'http://hl7.org/fhir/StructureDefinition/bp',
-          'http://hl7.org/fhir/us/core/StructureDefinition/us-core-smokingstatus',
-          'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-weight-for-height',
-          'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab',
-          'http://hl7.org/fhir/us/core/StructureDefinition/pediatric-bmi-for-age',
-          'http://hl7.org/fhir/us/core/StructureDefinition/us-core-pulse-oximetry',
-          'http://hl7.org/fhir/us/core/StructureDefinition/head-occipital-frontal-circumference-percentile',
-          'http://hl7.org/fhir/StructureDefinition/bodyheight',
-          'http://hl7.org/fhir/StructureDefinition/bodytemp'
-        ]
-      },
-      FHIR::Procedure =>
-      {
-        prefix: 'performed',
-        suffixes: %w[DateTime Period],
-        profiles: [
-          'http://hl7.org/fhir/us/core/StructureDefinition/us-core-procedure'
-        ]
-      }
-    }.freeze
+    # MUST_SUPPORT_CHOICE_TYPES are defined in ./v3/choice_types.rb, ./v4/choice_types.rb, or ./v5/choice_types.rb
+
 
     # Goes through the set of bundles, and ensure we have at least SWAP_COUNT resources
     # in each resource/profile pair listed above that conform to each choice type.
@@ -90,15 +46,29 @@ module DataScript
           # If we still have choice types left over, we need to add some of this type
           next if missing_attrs.empty?
 
+          # puts "Profile: #{profile_url}"
           missing_attrs.each do |missing_attr|
+            # puts " - Missing Attr: #{missing_attr}"
             # If there are more than (SWAP_COUNT * the number of choices) resources of this class
             # Swap the choice type on SWAP_COUNT to the new type
             profile_resources.select { |resource| missing_attrs.none? { |attribute| resource.send(attribute) } }.first(SWAP_COUNT).each do |resource|
               # Get the first non-nil attribute value
-              old_attr_type, old_attr_val = all_attrs.map do |a|
-                av = resource.send(a)
-                [a, av] if av
-              end.compact.first
+              old_attr_type = all_attrs.find do |type|
+                # puts "    > Try #{type}"
+                !resource.send(type).nil?
+              end
+              # puts "    >> Found #{old_attr_type}"
+              old_attr_val = nil
+              old_attr_val = resource.send(old_attr_type) unless old_attr_type.nil?
+              # puts "    >>> Value #{old_attr_val}"
+              if old_attr_type.nil? || old_attr_val.nil?
+                # puts "    >>>> This type is nil, try #{choice[:prefix]}"
+                old_attr_val = resource.send(choice[:prefix])
+                # puts "    >>>> Value #{old_attr_val}"
+                old_attr_type = old_attr_val.class.to_s.split('::').last
+                old_attr_type = "#{choice[:prefix]}#{old_attr_type}"
+                # puts "    >>>> Assumed Type #{old_attr_type}"
+              end
               # convert it (using some ugly if statements) to the new type
               new_val = convert_choice_types(old_attr_val, missing_attr, old_attr_type)
               if profile_resources.count > (SWAP_COUNT * all_attrs.count)
@@ -190,7 +160,7 @@ module DataScript
     # @param bundles [Array] an array of FHIR::Bundle objects
     # @return nil
     def self.add_to_correct_bundle(resource, bundles)
-      bundle = bundles.find { |b| DataScript::Constraints.patient(b).id == get_resource_patient_id(resource) }
+      bundle = bundles.find { |b| DataScript::Constraints.patient(b)&.id == get_resource_patient_id(resource) }
       entry = create_bundle_entry(resource)
       bundle.entry << entry
       provenance = bundle.entry.find { |e| e.resource.is_a? FHIR::Provenance }.resource
