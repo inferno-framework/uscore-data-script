@@ -20,6 +20,7 @@ module DataScript
     # SDOH ASSESSMENTS include thiings like PRAPARE and other HRSN screenings.
     # There are 47 specific codes in the ValueSet expansion...
     SDOH_ASSESSMENT_OBSERVATIONS = ['93028-9','93025-5','69861-3','93027-1','81375-8','93034-7','68516-4','96782-8','93029-7','68517-2','96842-0','88123-5','76501-6','95618-5','93038-8','69858-9','93159-2','96780-2','44250-9','68524-8','88121-9','93026-3','82589-3','89555-7','96781-0','95530-2','56799-0','63586-2','96779-4','93677-3','63512-8','76437-3','88124-3','32624-9','97023-6','93035-4','54899-0','93033-9','93031-3','56051-6','88122-7','93030-5','97027-7','71802-3','44255-8','67875-5','76513-1']
+    QUESTIONNAIRE_PRAPARE = 'http://hl7.org/fhir/us/sdoh-clinicalcare/Questionnaire/SDOHCC-QuestionnairePRAPARE'
 
     def self.modify!(results, random_seed = 3)
       FHIR.logger.level = :info
@@ -762,7 +763,6 @@ module DataScript
         sexual_orientation = sexual_orientation_codes.sample
         bundle.entry.each do |entry|
           next unless entry.resource.resourceType == 'Observation'
-          category = entry.resource.category&.first&.coding&.first&.code
           code = entry.resource.code&.coding&.first&.code
           if code == '93025-5' # PRAPARE Multi-Observation
             # Create a QuestionnaireResponse
@@ -785,7 +785,7 @@ module DataScript
             entry.resource.hasMember = []
             entry.resource.derivedFrom = [ questionnaireResponseReference ]
             entry.resource.component.each do |component|
-              instance = FHIR::Json.from_json(entry.resource.to_json)
+              instance = FHIR::Observation.new
               instance.id = SecureRandom.uuid
               instance.component = nil
               instance.meta = FHIR::Meta.new
@@ -802,6 +802,11 @@ module DataScript
               elsif component.valueCodeableConcept
                 instance.valueCodeableConcept = component.valueCodeableConcept
               end
+              instance.status = entry.resource.status
+              instance.subject = entry.resource.subject
+              instance.encounter = entry.resource.encounter
+              instance.effectiveDateTime = entry.resource.effectiveDateTime
+              instance.issued = entry.resource.issued
               reference = FHIR::Reference.new
               reference.reference = "urn:uuid:#{instance.id}"
               provenance.target << reference
@@ -863,7 +868,8 @@ module DataScript
             profile = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-sdoh-assessment'
             entry.resource.meta = FHIR::Meta.new
             entry.resource.meta.profile = [ profile ]
-            entry.resource.category = [ create_codeable_concept('http://hl7.org/fhir/us/core/CodeSystem/us-core-tags', 'sdoh', 'SDOH') ]
+            entry.resource.category = [ create_codeable_concept('http://terminology.hl7.org/CodeSystem/observation-category','survey','Survey') ]
+            entry.resource.category << create_codeable_concept('http://hl7.org/fhir/us/core/CodeSystem/us-core-tags', 'sdoh', 'SDOH')
             obs_profiles[profile] += 1
           elsif category == 'survey'
             # catch any remaining survey obs that weren't SDOH related...
@@ -1188,5 +1194,19 @@ module DataScript
       return answer, serviceRequest
     end
 
+    def self.questionnaire_response_primitive_extension(json_string)
+      find_string = '        "questionnaire": "http://hl7.org/fhir/us/sdoh-clinicalcare/Questionnaire/SDOHCC-QuestionnairePRAPARE",'
+      replace_string = '        "questionnaire": "http://hl7.org/fhir/us/sdoh-clinicalcare/Questionnaire/SDOHCC-QuestionnairePRAPARE",
+            "_questionnaire" : {
+              "extension" : [
+                {
+                  "url" : "http://hl7.org/fhir/us/core/StructureDefinition/us-core-extension-questionnaire-uri",
+                  "valueUri" : "https://prapare.org/wp-content/uploads/2021/10/PRAPARE-English.pdf"
+                }
+              ]
+            },'
+      json_string.gsub!(find_string, replace_string)
+      json_string
+    end
   end
 end

@@ -288,6 +288,7 @@ selections.each do |bundle|
   filename = "#{output_data}/#{id}.json"
   file = File.open(filename,'w:UTF-8')
   json_string = bundle.to_json
+  DataScript::Modifications.questionnaire_response_primitive_extension(json_string) if VERSION==5 && json_string.include?(DataScript::Modifications::QUESTIONNAIRE_PRAPARE)
   # json_string.gsub!('"value": "DATAABSENTREASONEXTENSIONGOESHERE"', "\"_value\": { \"extension\": [ #{DataScript::Modifications.data_absent_reason.to_json} ] }")
   file.write( json_string )
   file.close

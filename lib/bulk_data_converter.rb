@@ -40,12 +40,12 @@ module DataScript
         json = JSON.parse( entry.resource.to_json )
         json = JSON.unparse(json)
         json = patient_json_override if index == 0 && patient_json_override
+        DataScript::Modifications.questionnaire_response_primitive_extension(json) if VERSION==5 && json.include?(DataScript::Modifications::QUESTIONNAIRE_PRAPARE)
 
         # rewrite all the references according to the keys
         keys.each do |key, value|
           json.gsub!(key, value)
         end
-        # json.gsub!('"value": "DATAABSENTREASONEXTENSIONGOESHERE"', "\"_value\": { \"extension\": [ #{DataScript::Modifications.data_absent_reason.to_json} ] }")
 
         file = open_file(entry.resource)
         file.write(json)

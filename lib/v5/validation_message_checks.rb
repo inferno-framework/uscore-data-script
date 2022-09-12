@@ -32,8 +32,9 @@ module DataScript
           # the invariant is wrong or the tooling can't figure it out
           (line.include?('resource.ofType(DiagnosticReport)') && line.include?('us-core-8')) ||
           # the invariant is wrong or the tooling can't figure it out
-          (line.include?('resource.ofType(Provenance)') && line.include?('provenance-1')))
-
+          (line.include?('resource.ofType(Provenance)') && line.include?('provenance-1')) ||
+          # bizarre Rxnorm expansion error?
+          line.include?('Error from server: Unable to find value set http://cts.nlm.nih.gov/fhir/ValueSet/2.16.840.1.113883.3.88.12.80.17'))
         return nil #"  IGNORE#{line.sub('Error','')}"
       end
 
