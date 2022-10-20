@@ -17,14 +17,14 @@ GEM
     mime-types (3.3.1)
       mime-types-data (~> 3.2015)
     mime-types-data (3.2020.0512)
-    mini_portile2 (2.6.1)
-    nokogiri (1.12.5)
-      mini_portile2 (~> 2.6.1)
+    mini_portile2 (2.8.0)
+    nokogiri (1.13.9)
+      mini_portile2 (~> 2.8.0)
       racc (~> 1.4)
     pry (0.13.1)
       coderay (~> 1.1)
       method_source (~> 1.0)
-    racc (1.5.2)
+    racc (1.6.0)
     rb-readline (0.5.5)
 
 PLATFORMS
