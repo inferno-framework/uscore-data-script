@@ -1,9 +1,11 @@
 # uscore-data-script
 
-Creates a minimal set of complete, realistic synthetic patients for FHIR US Core v3.1.0
-by generating a population of patients in Synthea and finding a small representive set that
-contain all required data elements.  This small set of patients is ideal for testing
-because it is suitable for demonstrating support for MUST SUPPORT data elements without requiring a large set of patients or sacrificing realism.
+Creates a minimal set of complete, realistic synthetic patients for HL7® FHIR®
+US Core v3.1.0 by generating a population of patients in Synthea and finding a
+small representive set that contain all required data elements. This small set
+of patients is ideal for testing because it is suitable for demonstrating
+support for MUST SUPPORT data elements without requiring a large set of patients
+or sacrificing realism.
 
 ## Install
 
@@ -86,3 +88,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+## Trademark Notice
+
+HL7, FHIR and the FHIR [FLAME DESIGN] are the registered trademarks of Health
+Level Seven International and their use does not constitute endorsement by HL7.
