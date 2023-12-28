@@ -75,8 +75,6 @@ on Pediatric BMI and Pediatric Weight, because the `Observation.value[x]` are re
 
 # License
 
-Copyright 2020 The MITRE Corporation
-
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
